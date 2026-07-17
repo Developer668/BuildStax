@@ -52,7 +52,7 @@ describe("Plivo stream protocol", () => {
     expect(xml).toContain("token=abc%26123");
   });
 
-  it("uses only the configured canonical WebSocket URL when one is available", () => {
+  it("accepts canonical HTTPS and WebSocket upgrade signatures without trusting forwarded hosts", () => {
     const candidates = publicRequestUrlCandidates({
       requestUrl: "http://127.0.0.1:3000/voice/plivo?token=x",
       forwardedHost: "voice.example.com",
@@ -60,7 +60,10 @@ describe("Plivo stream protocol", () => {
       configuredBaseUrl: "https://buildstax.example.com",
       webSocket: true,
     });
-    expect(candidates).toEqual(["wss://buildstax.example.com/voice/plivo?token=x"]);
+    expect(candidates).toEqual([
+      "https://buildstax.example.com/voice/plivo?token=x",
+      "wss://buildstax.example.com/voice/plivo?token=x",
+    ]);
   });
 
   it("bounds and parses Plivo form bodies without accepting duplicate fields", async () => {

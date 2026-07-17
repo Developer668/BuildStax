@@ -19,18 +19,6 @@ function inboundFailureStage(error: unknown) {
   return "internal";
 }
 
-function inboundDiagnostic(error: unknown) {
-  if (!(error instanceof Error)) return "Unknown error";
-  const cause = "cause" in error
-    ? error.cause instanceof Error
-      ? `${error.cause.name}: ${error.cause.message}`
-      : JSON.stringify(error.cause)
-    : "";
-  return `${error.name}: ${error.message}${cause ? `; ${cause}` : ""}`
-    .replace(/[^A-Za-z0-9 .,:;_/-]/g, "")
-    .slice(0, 220);
-}
-
 export async function POST(request: Request) {
   try {
     const nonce = request.headers.get("x-plivo-signature-v3-nonce");
@@ -85,10 +73,7 @@ export async function POST(request: Request) {
     console.error("Inbound Plivo voice intake failed", error);
     return new NextResponse("Inbound voice intake unavailable", {
       status: 503,
-      headers: {
-        "x-buildstax-failure-stage": inboundFailureStage(error),
-        "x-buildstax-diagnostic": inboundDiagnostic(error),
-      },
+      headers: { "x-buildstax-failure-stage": inboundFailureStage(error) },
     });
   }
 }

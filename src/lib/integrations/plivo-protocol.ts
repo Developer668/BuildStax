@@ -194,14 +194,17 @@ export function publicRequestUrlCandidates(input: {
   const candidates = new Set<string>();
   const add = (origin: string) => {
     const base = new URL(origin);
-    if (input.webSocket) base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
     candidates.add(new URL(path, base).toString());
+    if (input.webSocket) {
+      base.protocol = base.protocol === "https:" || base.protocol === "wss:" ? "wss:" : "ws:";
+      candidates.add(new URL(path, base).toString());
+    }
   };
   if (input.configuredBaseUrl) {
     add(input.configuredBaseUrl);
     return [...candidates];
   }
-  candidates.add(requestUrl.toString());
+  add(requestUrl.origin);
   if (input.forwardedHost) {
     const forwardedProtocol = input.forwardedProto?.split(",")[0]?.trim() || "https";
     add(`${forwardedProtocol}://${input.forwardedHost.split(",")[0]?.trim()}`);
