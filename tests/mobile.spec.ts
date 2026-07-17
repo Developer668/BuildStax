@@ -49,5 +49,5 @@ test("prospecting and build studio stay within the mobile viewport", async ({ pa
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
-  await expect(page.getByTitle("Tide & Timber Landscaping local website preview")).toBeVisible();
+  await expect(page.getByTitle("Tide & Timber Landscaping customer preview")).toBeVisible();
 });

@@ -14,6 +14,11 @@ export async function signUpAction(state: ActionState, formData: FormData) {
   return insforge.signUpAction(state, formData);
 }
 
+export async function testLoginAction(state: ActionState) {
+  if (!isInsForgeBackend()) return { status: "error", message: "Test login is unavailable." } as ActionState;
+  return insforge.testLoginAction(state);
+}
+
 export async function verifyEmailAction(state: ActionState, formData: FormData) {
   if (!isInsForgeBackend()) return { status: "error", message: "Email verification is available with InsForge." } as ActionState;
   return insforge.verifyEmailAction(state, formData);

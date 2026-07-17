@@ -256,6 +256,9 @@ export async function runSandboxDiscoveryAction(_: ActionState, formData: FormDa
         area: campaign.region,
         count: Math.min(campaign.dailyLeadLimit, 25),
       });
+      if (!discovery.prospects.length) {
+        throw new Error("Zero returned no website-free prospects with a reachable phone number for this campaign.");
+      }
       const completed = await client.database.rpc("complete_buildstax_discovery_run", {
         p_workspace_id: workspaceId,
         p_run_id: runId,

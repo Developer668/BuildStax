@@ -18,7 +18,7 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 5"], defaultBrowserType: "chromium" }, testMatch: /mobile\.spec\.ts/ },
   ],
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    command: "npx tsx server.mts --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100/login",
     reuseExistingServer: false,
     timeout: 120_000,
@@ -29,6 +29,7 @@ export default defineConfig({
       AUTH_SECRET: "buildstax-e2e-session-secret-with-more-than-thirty-two-characters",
       ADMIN_EMAIL: "operator@buildstax.local",
       ADMIN_PASSWORD: "buildstax-local",
+      BUILDSTAX_NEXT_DIST_DIR: ".next-e2e",
     },
   },
 });

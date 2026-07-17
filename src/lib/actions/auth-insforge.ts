@@ -7,6 +7,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createInsForgeAdminClient, safeInsForgeMessage } from "@/lib/insforge/client";
+import { isExistingAccountError } from "@/lib/insforge/errors";
+import { isSandbox } from "@/lib/utils";
 import type { ActionState } from "./types";
 
 const credentialsSchema = z.object({
@@ -61,6 +63,20 @@ export async function loginAction(_: ActionState, formData: FormData): Promise<A
   return { status: "success", message: "Signed in.", redirectTo: "/dashboard" };
 }
 
+export async function testLoginAction(_: ActionState): Promise<ActionState> {
+  if (!isSandbox()) return { status: "error", message: "Test login is unavailable." };
+  const email = process.env.TEST_LOGIN_EMAIL;
+  const password = process.env.TEST_LOGIN_PASSWORD;
+  if (!email || !password) return { status: "error", message: "Test login is not configured." };
+
+  const auth = createAuthActions({ cookies: await cookies() });
+  const { data, error } = await auth.signInWithPassword({ email, password });
+  if (error || !data?.user) {
+    return { status: "error", message: safeInsForgeMessage(error, "Test login failed.") };
+  }
+  return { status: "success", message: "Signed in as Test Operator.", redirectTo: "/dashboard" };
+}
+
 const signUpSchema = credentialsSchema.extend({
   name: z.string().trim().min(2, "Enter your name.").max(120),
   password: z.string().min(10, "Use at least 10 characters.").max(256),
@@ -73,6 +89,13 @@ export async function signUpAction(_: ActionState, formData: FormData): Promise<
   if (!limit.allowed) return { status: "error", message: `Too many attempts. Try again in ${limit.retryAfterSeconds} seconds.` };
   const auth = createAuthActions({ cookies: await cookies() });
   const { data, error } = await auth.signUp(parsed.data);
+  if (isExistingAccountError(error)) {
+    const existing = await auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
+    if (!existing.error && existing.data?.user) {
+      return { status: "success", message: "Account already existed. Signed in.", redirectTo: "/dashboard" };
+    }
+    return { status: "error", message: "An account with this email already exists. Sign in with its password." };
+  }
   if (error || !data) return { status: "error", message: safeInsForgeMessage(error, "Account creation failed. Try again.") };
   if (data.requireEmailVerification) {
     return {

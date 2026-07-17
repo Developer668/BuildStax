@@ -4,6 +4,7 @@ import { redirectAuthenticatedUser } from "@/lib/actions/auth";
 import { getAdminIdentity } from "@/lib/auth/password";
 import { LoginForm } from "./login-form";
 import { isInsForgeBackend } from "@/lib/backend";
+import { isSandbox } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export default async function LoginPage() {
               defaultEmail={identity?.email ?? ""}
               showLocalCredentials={Boolean(identity?.passwordIsLocalDefault && process.env.APP_MODE !== "production")}
               allowSignUp={insforge}
+              testLoginEnabled={insforge && isSandbox() && Boolean(process.env.TEST_LOGIN_EMAIL && process.env.TEST_LOGIN_PASSWORD)}
             />
           </div>
           <p className="mt-4 text-center text-[10px] text-muted-foreground">Protected operations surface · Session expires after 12 hours</p>

@@ -5,6 +5,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireMutationUser } from "@/lib/auth/session";
+import { createBuildArtifact } from "@/lib/builds/artifact";
 import { getDb } from "@/lib/db";
 import { getWorkspaceSettings } from "@/lib/db/sqlite-queries";
 import {
@@ -25,6 +26,7 @@ import {
   stageAfterCallOutcome,
   type BusinessStage,
 } from "@/lib/domain";
+import { deliverTransactionalEmail, safeEmailProviderMessage } from "@/lib/integrations/email";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { isSandbox } from "@/lib/utils";
 import type { ActionState } from "./types";
@@ -321,6 +323,7 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
   if (!business.requirements.trim()) return actionError("Add customer requirements before starting the build.");
   const now = new Date().toISOString();
   const projectId = id("prj");
+  const runId = id("run");
   const previewToken = `${slugify(business.name)}-${randomBytes(16).toString("hex")}`;
   db.transaction((tx) => {
     tx.insert(projects)
@@ -343,7 +346,7 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
       .run();
     tx.insert(automationRuns)
       .values({
-        id: id("run"),
+        id: runId,
         type: "site_build",
         status: "succeeded",
         provider: "Local template adapter",
@@ -357,9 +360,35 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
       })
       .run();
   });
-  audit({ actorId: user.id, action: "project.started", entityType: "business", entityId: business.id, detail: "Created a customer preview using the isolated local build adapter." });
+  try {
+    await createBuildArtifact({
+      business,
+      project: {
+        id: projectId,
+        businessId: business.id,
+        status: "building",
+        brief: business.requirements,
+        previewToken,
+        productionUrl: null,
+        revisionCount: 0,
+        deliveredAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    db.transaction((tx) => {
+      tx.update(projects).set({ status: "review", updatedAt: new Date().toISOString() }).where(eq(projects.id, projectId)).run();
+      tx.update(businesses).set({ stage: "review", nextAction: "Review verified build artifact", nextActionAt: addDays(1), updatedAt: new Date().toISOString() }).where(eq(businesses.id, business.id)).run();
+      tx.update(automationRuns).set({ summary: `Generated and verified a static site artifact for ${business.name}.` }).where(eq(automationRuns.id, runId)).run();
+    });
+  } catch {
+    db.update(automationRuns).set({ status: "failed", error: "Artifact generation or release checks failed.", finishedAt: new Date().toISOString() }).where(eq(automationRuns.id, runId)).run();
+    return actionError("The site artifact could not be generated or verified.");
+  }
+  audit({ actorId: user.id, action: "project.artifact_verified", entityType: "project", entityId: projectId, detail: "Generated an isolated static site artifact and passed the deterministic release checks before customer review." });
   revalidateBusiness(business.id);
-  return actionSuccess("Build started and preview created.");
+  revalidatePath("/build-studio");
+  return actionSuccess("Build artifact passed release checks and is ready for customer review.");
 }
 
 export async function advanceProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -423,6 +452,9 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
   const db = getDb();
   const business = db.select().from(businesses).where(eq(businesses.id, parsed.data.businessId)).get();
   if (!business) return actionError("Business not found.");
+  if (parsed.data.direction === "outbound" && !business.email.trim()) {
+    return actionError("Capture a valid business email before sending a follow-up.");
+  }
   const workspace = await getWorkspaceSettings();
   if (parsed.data.direction === "outbound") {
     if (workspace.block_dnc_outreach !== "false" && business.doNotCall) return actionError("Outbound contact is blocked for a do-not-call business.");
@@ -439,16 +471,39 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
     .get();
   if (recentDuplicate && Date.now() - new Date(recentDuplicate.createdAt).getTime() < 60_000) return actionSuccess("This message is already recorded.");
   const now = new Date().toISOString();
+  let provider = "Local record";
+  let status = parsed.data.direction === "inbound" ? "received" : "recorded";
+  let deliveryDetail = "";
+  if (parsed.data.direction === "outbound") {
+    if (isSandbox()) {
+      provider = "Sandbox email suppression";
+      status = "suppressed";
+      deliveryDetail = "Sandbox mode suppressed external email delivery.";
+    } else {
+      try {
+        const delivery = await deliverTransactionalEmail({
+          to: business.email,
+          subject: parsed.data.subject || `BuildStax follow-up for ${business.name}`,
+          text: parsed.data.body,
+        });
+        provider = `${delivery.provider}${delivery.runId ? ` run ${delivery.runId}` : ""}`;
+        status = "sent";
+        deliveryDetail = `Dispatched through ${delivery.provider} under the capped Zero email policy.`;
+      } catch (error) {
+        return actionError(safeEmailProviderMessage(error));
+      }
+    }
+  }
   db.insert(messages)
     .values({
       id: id("msg"),
       businessId: business.id,
       direction: parsed.data.direction,
       channel: parsed.data.direction === "internal" ? "note" : "email",
-      status: parsed.data.direction === "inbound" ? "received" : "recorded",
+      status,
       subject: parsed.data.subject,
       body: parsed.data.body,
-      provider: "Local record",
+      provider,
       createdAt: now,
     })
     .run();
@@ -456,9 +511,11 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
     .set({ lastContactAt: parsed.data.direction === "internal" ? business.lastContactAt : now, updatedAt: now })
     .where(eq(businesses.id, business.id))
     .run();
-  audit({ actorId: user.id, action: "message.recorded", entityType: "business", entityId: business.id, detail: `Recorded a ${parsed.data.direction} ${parsed.data.direction === "internal" ? "note" : "email"}.` });
+  audit({ actorId: user.id, action: parsed.data.direction === "outbound" ? "email.dispatched" : "message.recorded", entityType: "business", entityId: business.id, detail: deliveryDetail || `Recorded a ${parsed.data.direction} ${parsed.data.direction === "internal" ? "note" : "email"}.` });
   revalidateBusiness(business.id);
-  return actionSuccess(parsed.data.direction === "outbound" ? "Follow-up saved locally. No email was sent." : "Message recorded.");
+  return actionSuccess(parsed.data.direction === "outbound"
+    ? isSandbox() ? "Follow-up recorded; sandbox mode intentionally suppressed delivery." : "Follow-up email dispatched and added to the customer thread."
+    : "Message recorded.");
 }
 
 const feedbackSchema = z.object({

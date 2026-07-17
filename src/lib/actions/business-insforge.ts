@@ -15,6 +15,8 @@ import { createInsForgePublicClient, safeInsForgeMessage } from "@/lib/insforge/
 import { requireInsForgeContext } from "@/lib/insforge/context";
 import { mapBusiness, mapProject, mapQuote, type InsForgeRow } from "@/lib/insforge/map";
 import { findWorkspaceRow, mutationId, recordInsForgeAudit } from "@/lib/insforge/mutate";
+import { createBuildArtifact } from "@/lib/builds/artifact";
+import { deliverTransactionalEmail, safeEmailProviderMessage } from "@/lib/integrations/email";
 import { createQuoteCheckoutSession, safeStripeMessage } from "@/lib/integrations/stripe";
 import { isSandbox } from "@/lib/utils";
 import type { ActionState } from "./types";
@@ -276,8 +278,41 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
     p_mode: isSandbox() ? "sandbox" : "manual",
   });
   if (result.error) return actionError(safeInsForgeMessage(result.error, "The build could not start. Confirm requirements and payment."));
+  try {
+    await createBuildArtifact({
+      business,
+      project: {
+        id: projectId,
+        businessId: business.id,
+        status: "building",
+        brief: business.requirements,
+        previewToken,
+        productionUrl: null,
+        revisionCount: 0,
+        deliveredAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    const review = await client.database.rpc("advance_buildstax_project", {
+      p_workspace_id: workspaceId,
+      p_project_id: projectId,
+      p_business_id: business.id,
+    });
+    if (review.error) throw review.error;
+    await recordInsForgeAudit(client, workspaceId, {
+      actorId: (await requireMutationUser()).id,
+      action: "project.artifact_verified",
+      entityType: "project",
+      entityId: projectId,
+      detail: "Generated an isolated static site artifact and passed the deterministic release checks before customer review.",
+    });
+  } catch (error) {
+    return actionError(safeInsForgeMessage(error, "The site artifact could not be generated or verified."));
+  }
   revalidateBusiness(business.id);
-  return actionSuccess("Build started and preview created.");
+  revalidatePath("/build-studio");
+  return actionSuccess("Build artifact passed release checks and is ready for customer review.");
 }
 
 export async function advanceProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -336,6 +371,9 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
   const businessRow = await findWorkspaceRow(client, workspaceId, "businesses", parsed.data.businessId);
   if (!businessRow) return actionError("Business not found.");
   const business = mapBusiness(businessRow);
+  if (parsed.data.direction === "outbound" && !business.email.trim()) {
+    return actionError("Capture a valid business email before sending a follow-up.");
+  }
   const duplicateResult = await client.database.from("messages").select("id, created_at").eq("workspace_id", workspaceId)
     .eq("business_id", business.id).eq("direction", parsed.data.direction).eq("body", parsed.data.body)
     .order("created_at", { ascending: false }).limit(1);
@@ -343,20 +381,45 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
   const duplicate = ((duplicateResult.data ?? []) as InsForgeRow[])[0];
   if (duplicate && Date.now() - new Date(String(duplicate.created_at)).getTime() < 60_000) return actionSuccess("This message is already recorded.");
   const now = new Date().toISOString();
+  let provider = "Operator record";
+  let status = parsed.data.direction === "inbound" ? "received" : "recorded";
+  let deliveryDetail = "";
+  if (parsed.data.direction === "outbound") {
+    if (isSandbox()) {
+      provider = "Sandbox email suppression";
+      status = "suppressed";
+      deliveryDetail = "Sandbox mode suppressed external email delivery.";
+    } else {
+      try {
+        const delivery = await deliverTransactionalEmail({
+          to: business.email,
+          subject: parsed.data.subject || `BuildStax follow-up for ${business.name}`,
+          text: parsed.data.body,
+        });
+        provider = `${delivery.provider}${delivery.runId ? ` run ${delivery.runId}` : ""}`;
+        status = "sent";
+        deliveryDetail = `Dispatched through ${delivery.provider} under the capped Zero email policy.`;
+      } catch (error) {
+        return actionError(safeEmailProviderMessage(error));
+      }
+    }
+  }
   const insert = await admin.database.from("messages").insert([{
     id: mutationId("msg"), workspace_id: workspaceId, business_id: business.id,
     direction: parsed.data.direction, channel: parsed.data.direction === "internal" ? "note" : "email",
-    status: parsed.data.direction === "inbound" ? "received" : "recorded", subject: parsed.data.subject,
-    body: parsed.data.body, provider: "Operator record", created_at: now,
+    status, subject: parsed.data.subject,
+    body: parsed.data.body, provider, created_at: now,
   }]);
   if (insert.error) return actionError(safeInsForgeMessage(insert.error, "The message could not be recorded. Confirm the phone-first policy."));
   if (parsed.data.direction !== "internal") {
     const contactUpdate = await admin.database.from("businesses").update({ last_contact_at: now }).eq("workspace_id", workspaceId).eq("id", business.id);
     if (contactUpdate.error) return actionError(safeInsForgeMessage(contactUpdate.error, "The contact timestamp could not be updated."));
   }
-  await recordInsForgeAudit(client, workspaceId, { actorId: user.id, action: "message.recorded", entityType: "business", entityId: business.id, detail: `Recorded a ${parsed.data.direction} ${parsed.data.direction === "internal" ? "note" : "email"}.` });
+  await recordInsForgeAudit(client, workspaceId, { actorId: user.id, action: parsed.data.direction === "outbound" ? "email.dispatched" : "message.recorded", entityType: "business", entityId: business.id, detail: deliveryDetail || `Recorded a ${parsed.data.direction} ${parsed.data.direction === "internal" ? "note" : "email"}.` });
   revalidateBusiness(business.id);
-  return actionSuccess(parsed.data.direction === "outbound" ? "Follow-up saved locally. No email was sent." : "Message recorded.");
+  return actionSuccess(parsed.data.direction === "outbound"
+    ? isSandbox() ? "Follow-up recorded; sandbox mode intentionally suppressed delivery." : "Follow-up email dispatched and added to the customer thread."
+    : "Message recorded.");
 }
 
 const feedbackSchema = z.object({

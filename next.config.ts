@@ -16,6 +16,7 @@ function securityHeaders(microphone: "()" | "(self)") {
 }
 
 const nextConfig: NextConfig = {
+  ...(process.env.BUILDSTAX_NEXT_DIST_DIR ? { distDir: process.env.BUILDSTAX_NEXT_DIST_DIR } : {}),
   poweredByHeader: false,
   async headers() {
     return [

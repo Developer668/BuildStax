@@ -1,19 +1,27 @@
 "use client";
 
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, UserRoundCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { loginAction } from "@/lib/actions/auth";
+import { loginAction, testLoginAction } from "@/lib/actions/auth";
 import { initialActionState } from "@/lib/actions/types";
 import { Button } from "@/components/ui/button";
 import { FieldError, FormMessage, fieldErrorProps } from "@/components/ui/form-message";
 import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 
-export function LoginForm({ defaultEmail, showLocalCredentials, allowSignUp }: { defaultEmail: string; showLocalCredentials: boolean; allowSignUp: boolean }) {
+type LoginFormProps = {
+  defaultEmail: string;
+  showLocalCredentials: boolean;
+  allowSignUp: boolean;
+  testLoginEnabled: boolean;
+};
+
+export function LoginForm({ defaultEmail, showLocalCredentials, allowSignUp, testLoginEnabled }: LoginFormProps) {
   const [state, action] = useActionState(loginAction, initialActionState);
+  const [testState, testAction] = useActionState(testLoginAction, initialActionState);
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
@@ -25,8 +33,33 @@ export function LoginForm({ defaultEmail, showLocalCredentials, allowSignUp }: {
     }
   }, [router, state]);
 
+  useEffect(() => {
+    if (testState.status === "success" && testState.redirectTo) {
+      toast.success(testState.message);
+      router.replace(testState.redirectTo);
+      router.refresh();
+    }
+  }, [router, testState]);
+
   return (
-    <form action={action} className="mt-6 space-y-4" noValidate>
+    <div className="mt-6">
+      {testLoginEnabled ? (
+        <>
+          <form action={testAction}>
+            <SubmitButton variant="dark" size="lg" className="w-full gap-2" pendingLabel="Opening workspace…">
+              <UserRoundCheck className="size-4" />
+              Continue as Test Operator
+            </SubmitButton>
+            <FormMessage state={testState} />
+          </form>
+          <div className="my-5 flex items-center gap-3" aria-hidden="true">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-[10px] font-bold uppercase text-muted-foreground">or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+        </>
+      ) : null}
+      <form action={action} className="space-y-4" noValidate>
       <div>
         <label htmlFor="email" className="field-label">Email</label>
         <Input id="email" name="email" type="email" autoComplete="username" defaultValue={defaultEmail} {...fieldErrorProps(state, "email")} />
@@ -46,6 +79,7 @@ export function LoginForm({ defaultEmail, showLocalCredentials, allowSignUp }: {
       <FormMessage state={state} />
       <SubmitButton variant="dark" size="lg" className="w-full" pendingLabel="Signing in…">Sign in</SubmitButton>
       {allowSignUp ? <p className="text-center text-[10px] text-muted-foreground">New operator? <Link href="/signup" className="font-bold text-foreground hover:underline">Create an account</Link></p> : null}
-    </form>
+      </form>
+    </div>
   );
 }

@@ -220,7 +220,7 @@ export function MessageDialog({ business }: { business: Business }) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{outreachBlocked ? "Log inbound message or note" : "Add to customer thread"}</DialogTitle>
-          <DialogDescription>{outreachBlocked ? "Outbound follow-up is permanently disabled for this do-not-call record. You can still record an inbound email or internal note." : "In sandbox mode, outbound messages are saved as records and are not delivered."}</DialogDescription>
+          <DialogDescription>{outreachBlocked ? "Outbound follow-up is permanently disabled for this do-not-call record. You can still record an inbound email or internal note." : "Approved post-call follow-ups are sent through the capped delivery provider in production. Sandbox mode records them without delivery."}</DialogDescription>
         </DialogHeader>
         <form action={action} className="space-y-4 p-5" noValidate>
           <input type="hidden" name="businessId" value={business.id} />
@@ -228,7 +228,7 @@ export function MessageDialog({ business }: { business: Business }) {
           <div><label className="field-label" htmlFor="message-subject">Subject <span className="font-normal text-muted-foreground">optional for notes</span></label><Input id="message-subject" name="subject" /></div>
           <div><label className="field-label" htmlFor="message-body">Message</label><Textarea id="message-body" name="body" className="min-h-40" {...fieldErrorProps(state, "body")} /><FieldError state={state} name="body" /></div>
           <FormMessage state={state} />
-          <div className="flex justify-end gap-2 border-t border-border pt-4"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><SubmitButton variant="dark" pendingLabel="Recording…">Save to thread</SubmitButton></div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4"><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><SubmitButton variant="dark" pendingLabel="Sending…">{outreachBlocked ? "Save to thread" : "Send follow-up"}</SubmitButton></div>
         </form>
       </DialogContent>
     </Dialog>

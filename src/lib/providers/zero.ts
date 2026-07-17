@@ -208,16 +208,41 @@ export type ZeroProspect = {
   sourceRef: string;
 };
 
+export function leadDiscoveryQuery(category: string) {
+  const normalized = category.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const mappedCategory = [
+    [/(cafe|coffee)/, "cafe"],
+    [/(restaurant|food)/, "restaurant"],
+    [/(bar|pub)/, "bar"],
+    [/(hotel|lodging)/, "hotel"],
+    [/(dental|doctor|clinic|medical|health)/, "health"],
+    [/(pharmacy)/, "pharmacy"],
+    [/(bookkeep|account|finance|tax)/, "finance"],
+    [/(bank|credit union)/, "bank"],
+    [/(auto|mechanic|glass)/, "automotive"],
+    [/(school|tutor|education)/, "education"],
+    [/(gym|fitness)/, "gym"],
+    [/(grocery|market)/, "grocery"],
+  ].find(([pattern]) => (pattern as RegExp).test(normalized));
+  if (mappedCategory) return { category: mappedCategory[1] as string };
+
+  const tag = [
+    [/(tailor|alteration)/, "craft=tailor"],
+    [/(landscap|garden)/, "craft=landscaper"],
+    [/(bicycle|bike)/, "shop=bicycle"],
+    [/(groom|pet)/, "pet=grooming"],
+  ].find(([pattern]) => (pattern as RegExp).test(normalized));
+  return tag ? { tag: tag[1] as string } : { category: "retail" };
+}
+
 export async function discoverProspectsWithZero(input: { category: string; area: string; count: number }) {
   const count = Math.max(1, Math.min(Math.trunc(input.count), 25));
-  const hasUsableProspect = (body: unknown) => {
-    const parsed = zeroProspectResponseSchema.safeParse(body);
-    return parsed.success && parsed.data.results.some((row) => !row.website?.trim() && (row.phone?.trim().length ?? 0) >= 7);
-  };
+  const query: Record<string, string | number> = { area: input.area.trim(), count };
+  Object.assign(query, leadDiscoveryQuery(input.category));
   const result = await runJsonCapability({
     intent: "lead_discovery",
-    query: { area: input.area.trim(), category: input.category.trim(), count },
-    validateResult: hasUsableProspect,
+    query,
+    validateResult: (body) => zeroProspectResponseSchema.safeParse(body).success,
   });
   const parsed = zeroProspectResponseSchema.parse(result.body);
   const seen = new Set<string>();

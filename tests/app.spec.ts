@@ -68,14 +68,14 @@ test("loads every protected route and keeps navigation functional", async ({ pag
   }
 });
 
-test("shows the local prospecting browser and live website build surface", async ({ page }) => {
+test("shows governed prospecting and the artifact build surface", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: "Prospecting", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Local browser session" })).toBeVisible();
-  await expect(page.getByText("Local only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Prospecting discovery" })).toBeVisible();
+  await expect(page.getByText("Sandbox", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Build studio", exact: true }).click();
-  await expect(page.getByTitle("Tide & Timber Landscaping local website preview")).toBeVisible();
-  await expect(page.getByText("AGENT LOG", { exact: true })).toBeVisible();
+  await expect(page.getByTitle("Tide & Timber Landscaping customer preview")).toBeVisible();
+  await expect(page.getByText("ARTIFACT FILES", { exact: true })).toBeVisible();
 });
 
 test("creates a persistent call-ready business without duplicate submission", async ({ page }) => {
