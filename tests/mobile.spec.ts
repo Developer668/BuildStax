@@ -21,6 +21,15 @@ test("mobile navigation and pipeline remain usable without horizontal viewport o
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test("public landing page keeps the phone line and next section visible on mobile", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "BuildStax." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Call BuildStax at +1 (330) 737-7690" })).toBeVisible();
+  const heroBottom = await page.locator("main > section").first().evaluate((element) => element.getBoundingClientRect().bottom);
+  expect(heroBottom).toBeLessThan(page.viewportSize()!.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test("customer preview preserves a visible next section on mobile", async ({ page }) => {
   await page.goto("/preview/tide-timber-review-7f3c");
   await expect(page.getByRole("heading", { name: "Tide & Timber Landscaping" })).toBeVisible();

@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
-  { href: "/", label: "Command center", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Command center", icon: LayoutDashboard },
   { href: "/prospecting", label: "Prospecting", icon: Bot },
   { href: "/pipeline", label: "Pipeline", icon: Building2 },
   { href: "/campaigns", label: "Campaigns & pitch", icon: BarChart3 },
@@ -57,7 +57,7 @@ export function AppShell({ user, workspaceName, sandbox, children }: { user: Use
         <div className="mb-2 px-2 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--sidebar-muted)]">Workspace</div>
         <nav aria-label="Primary navigation" className="space-y-1">
           {navigation.map((item) => {
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.href}

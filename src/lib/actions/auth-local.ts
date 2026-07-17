@@ -36,7 +36,7 @@ export async function loginAction(_: ActionState, formData: FormData): Promise<A
   if (!user) return { status: "error", message: "The configured operator account is not initialized." };
   resetRateLimit(rateKey);
   await setSession(user);
-  return { status: "success", message: "Signed in.", redirectTo: "/" };
+  return { status: "success", message: "Signed in.", redirectTo: "/dashboard" };
 }
 
 export async function logoutAction() {
@@ -46,7 +46,7 @@ export async function logoutAction() {
 
 export async function redirectAuthenticatedUser() {
   const user = await getCurrentUser();
-  if (user) redirect("/");
+  if (user) redirect("/dashboard");
 }
 
 export async function clearInvalidSession() {

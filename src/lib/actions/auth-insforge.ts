@@ -58,7 +58,7 @@ export async function loginAction(_: ActionState, formData: FormData): Promise<A
   if (error || !data?.user) {
     return { status: "error", message: safeInsForgeMessage(error, "Email or password is incorrect.") };
   }
-  return { status: "success", message: "Signed in.", redirectTo: "/" };
+  return { status: "success", message: "Signed in.", redirectTo: "/dashboard" };
 }
 
 const signUpSchema = credentialsSchema.extend({
@@ -81,7 +81,7 @@ export async function signUpAction(_: ActionState, formData: FormData): Promise<
       redirectTo: `/verify?email=${encodeURIComponent(parsed.data.email)}`,
     };
   }
-  return { status: "success", message: "Account created.", redirectTo: "/" };
+  return { status: "success", message: "Account created.", redirectTo: "/dashboard" };
 }
 
 const verifySchema = z.object({
@@ -97,7 +97,7 @@ export async function verifyEmailAction(_: ActionState, formData: FormData): Pro
   const auth = createAuthActions({ cookies: await cookies() });
   const { data, error } = await auth.verifyEmail(parsed.data);
   if (error || !data?.user) return { status: "error", message: safeInsForgeMessage(error, "The code is invalid or expired.") };
-  return { status: "success", message: "Email verified.", redirectTo: "/" };
+  return { status: "success", message: "Email verified.", redirectTo: "/dashboard" };
 }
 
 export async function logoutAction() {
@@ -107,7 +107,7 @@ export async function logoutAction() {
 }
 
 export async function redirectAuthenticatedUser() {
-  if (await getCurrentUser()) redirect("/");
+  if (await getCurrentUser()) redirect("/dashboard");
 }
 
 export async function clearInvalidSession() {

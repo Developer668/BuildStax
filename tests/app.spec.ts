@@ -5,9 +5,19 @@ async function signIn(page: Page) {
   await page.goto("/login");
   await page.locator("#password").fill("buildstax-local");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
   await expect(page.getByRole("heading", { name: "Command center" })).toBeVisible();
 }
+
+test("publishes the AI website line as the public home page", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "BuildStax." })).toBeVisible();
+  const call = page.getByRole("link", { name: "Call BuildStax at +1 (330) 737-7690" });
+  await expect(call).toHaveAttribute("href", "tel:+13307377690");
+  await expect(page.getByText("No signup required", { exact: true })).toBeVisible();
+  await expect(page.getByAltText("A drought-aware garden website concept created from a BuildStax brief")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
 
 test("rejects invalid credentials and accepts the sandbox operator", async ({ page }) => {
   await page.goto("/login");
@@ -20,7 +30,7 @@ test("rejects invalid credentials and accepts the sandbox operator", async ({ pa
   ).toBeVisible();
   await page.locator("#password").fill("buildstax-local");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/dashboard");
 });
 
 test("associates server validation errors with invalid sign-in fields", async ({ page }) => {
@@ -115,7 +125,10 @@ test("keeps outbound messaging unavailable on do-not-call records", async ({ pag
   await expect(page.getByLabel("Type").locator('option[value="outbound"]')).toHaveCount(0);
 });
 
-test("dashboard and preview have no serious accessibility violations", async ({ page }) => {
+test("landing, dashboard, and preview have no serious accessibility violations", async ({ page }) => {
+  await page.goto("/");
+  const landingResults = await new AxeBuilder({ page }).analyze();
+  expect(landingResults.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
   await signIn(page);
   const dashboardResults = await new AxeBuilder({ page }).analyze();
   expect(dashboardResults.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);

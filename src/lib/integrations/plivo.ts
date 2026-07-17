@@ -47,6 +47,7 @@ export function plivoConfig() {
     publicBaseUrl: publicBaseUrl(),
     primaryNumber: normalizeE164(env("PLIVO_PRIMARY_NUMBER")),
     testNumber: normalizeE164(env("PLIVO_TEST_NUMBER")),
+    applicationId: env("PLIVO_APPLICATION_ID"),
     testDestination: env("PLIVO_TEST_DESTINATION") ? normalizeE164(env("PLIVO_TEST_DESTINATION")) : null,
     liveCallsEnabled: env("PLIVO_LIVE_CALLS_ENABLED") === "true",
     maxCallSeconds: boundedCallSeconds(env("PLIVO_MAX_CALL_SECONDS")),
@@ -159,12 +160,30 @@ export async function getPlivoReadiness() {
       cache: "no-store",
     });
     if (!response.ok) throw new Error("Plivo account verification failed.");
-    const body = await response.json() as { objects?: Array<{ number?: string; voice_enabled?: boolean }> };
+    const body = await response.json() as { objects?: Array<{ number?: string; voice_enabled?: boolean; application?: string }> };
     const configured = new Set([config.testNumber.slice(1), config.primaryNumber.slice(1)]);
     const owned = (body.objects ?? []).filter((number) => number.voice_enabled && number.number && configured.has(number.number));
-    return owned.length === configured.size
-      ? { status: "ready" as const, detail: `Plivo verified ${owned.length} voice-enabled caller IDs and the signed realtime bridge configuration.` }
-      : { status: "partial" as const, detail: "Plivo responded, but one or more configured caller IDs were not verified as voice-enabled." };
+    if (owned.length !== configured.size) {
+      return { status: "partial" as const, detail: "Plivo responded, but one or more configured caller IDs were not verified as voice-enabled." };
+    }
+    if (!/^\d{8,32}$/.test(config.applicationId)) {
+      return { status: "partial" as const, detail: "The voice numbers exist, but the BuildStax inbound application ID is not configured." };
+    }
+    const primary = owned.find((number) => number.number === config.primaryNumber.slice(1));
+    if (!primary?.application?.includes(`/Application/${config.applicationId}/`)) {
+      return { status: "partial" as const, detail: "The primary voice number is not attached to the configured BuildStax application." };
+    }
+    const applicationResponse = await fetch(`https://api.plivo.com/v1/Account/${encodeURIComponent(config.authId)}/Application/${encodeURIComponent(config.applicationId)}/`, {
+      headers: { authorization: `Basic ${Buffer.from(`${config.authId}:${config.authToken}`).toString("base64")}` },
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!applicationResponse.ok) throw new Error("Plivo application verification failed.");
+    const application = await applicationResponse.json() as { answer_url?: string; enabled?: boolean };
+    const expectedAnswerUrl = apiUrl("/api/telephony/plivo/inbound");
+    return application.enabled && application.answer_url === expectedAnswerUrl
+      ? { status: "ready" as const, detail: `Plivo verified ${owned.length} voice-enabled caller IDs and the primary number's signed BuildStax inbound route.` }
+      : { status: "partial" as const, detail: "The BuildStax Plivo application is disabled or its answer URL does not match the deployed inbound route." };
   } catch {
     return { status: "partial" as const, detail: "Plivo is configured, but live account and number readiness could not be verified." };
   }

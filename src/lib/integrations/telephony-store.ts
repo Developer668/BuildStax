@@ -1,5 +1,4 @@
-import { createAdminClient } from "@insforge/sdk";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 type TelephonySessionStatus = "requested" | "ringing" | "in_progress" | "completed" | "failed" | "cancelled";
 type TelephonySessionPatch = Partial<{
@@ -26,7 +25,17 @@ type TelephonySessionRow = {
   transcript?: string;
 };
 
-function adminClient() {
+export type VoiceBusinessContext = {
+  name: string;
+  category: string;
+  location: string;
+  contactName: string;
+  email: string;
+  requirements: string;
+  preferredStyle: string;
+};
+
+async function adminClient() {
   const baseUrl = process.env.NEXT_PUBLIC_INSFORGE_URL;
   const apiKey = process.env.INSFORGE_API_KEY;
   if (!baseUrl || !apiKey) throw new Error("InsForge server configuration is required for telephony persistence.");
@@ -35,6 +44,7 @@ function adminClient() {
   if (parsed.username || parsed.password || (parsed.protocol !== "https:" && !(local && process.env.NODE_ENV !== "production"))) {
     throw new Error("InsForge telephony persistence requires a trusted HTTPS API origin.");
   }
+  const { createAdminClient } = await import("@insforge/sdk");
   return createAdminClient({ baseUrl: parsed.origin, apiKey });
 }
 
@@ -51,8 +61,11 @@ export async function createTelephonySession(input: {
   mode: "sandbox" | "live";
   fromNumber: string;
   toNumber: string;
+  providerCallId?: string;
+  answeredAt?: string;
 }) {
-  const result = await adminClient().database.from("telephony_sessions").insert([{
+  const client = await adminClient();
+  const result = await client.database.from("telephony_sessions").insert([{
     id: input.id,
     workspace_id: input.workspaceId,
     business_id: input.businessId,
@@ -62,18 +75,163 @@ export async function createTelephonySession(input: {
     mode: input.mode,
     from_number: input.fromNumber,
     to_number: input.toNumber,
+    provider_call_id: input.providerCallId || null,
     transcript: "",
     error: "",
     duration_seconds: 0,
     cost_cents: 0,
+    answered_at: input.answeredAt || null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }]);
   assertResult(result, "InsForge could not create the telephony session.");
 }
 
+function deterministicId(prefix: string, value: string) {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return `${prefix}_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export async function getOrCreateInboundTelephonySession(input: {
+  callId: string;
+  fromNumber: string;
+  toNumber: string;
+}) {
+  const workspaceId = process.env.PLIVO_INBOUND_WORKSPACE_ID?.trim() || "";
+  const campaignId = process.env.PLIVO_INBOUND_CAMPAIGN_ID?.trim() || "";
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId) || !/^cmp_[0-9a-f-]{36}$/i.test(campaignId)) {
+    throw new Error("The inbound voice workspace and campaign are not configured.");
+  }
+  const client = await adminClient();
+  const sessionId = deterministicId("tel", input.callId);
+  const existingSession = await client.database.from("telephony_sessions")
+    .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
+    .eq("id", sessionId)
+    .maybeSingle();
+  assertResult(existingSession, "InsForge could not check the inbound telephony session.");
+  if (existingSession.data) return existingSession.data as TelephonySessionRow;
+
+  const businessId = deterministicId("biz_inbound", `${workspaceId}:${input.fromNumber}`);
+  const existingBusiness = await client.database.from("businesses")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("id", businessId)
+    .maybeSingle();
+  assertResult(existingBusiness, "InsForge could not check the inbound business record.");
+  if (!existingBusiness.data) {
+    const now = new Date().toISOString();
+    const suffix = input.fromNumber.slice(-4);
+    const inserted = await client.database.from("businesses").insert([{
+      id: businessId,
+      workspace_id: workspaceId,
+      campaign_id: campaignId,
+      name: `New phone inquiry ${suffix}`,
+      category: "Inbound website inquiry",
+      location: "Phone intake",
+      address: "",
+      contact_name: "",
+      phone: input.fromNumber,
+      email: "",
+      website_status: "unknown",
+      source: "inbound_phone",
+      source_ref: `plivo:${input.fromNumber}`,
+      stage: "interested",
+      score: 90,
+      do_not_call: false,
+      estimated_site_cost_cents: 90_000,
+      requirements: "",
+      preferred_style: "",
+      next_action: "Complete website intake by phone",
+      next_action_at: now,
+      created_at: now,
+      updated_at: now,
+    }]);
+    assertResult(inserted, "InsForge could not create the inbound business record.");
+  }
+
+  await createTelephonySession({
+    id: sessionId,
+    workspaceId,
+    businessId,
+    direction: "inbound",
+    status: "in_progress",
+    mode: "live",
+    fromNumber: input.fromNumber,
+    toNumber: input.toNumber,
+    providerCallId: input.callId,
+    answeredAt: new Date().toISOString(),
+  });
+  const session = await getTelephonySession(sessionId);
+  if (!session) throw new Error("InsForge did not return the inbound telephony session.");
+  return session;
+}
+
+export async function getVoiceBusinessContext(session: TelephonySessionRow): Promise<VoiceBusinessContext> {
+  const client = await adminClient();
+  const result = await client.database.from("businesses")
+    .select("name, category, location, contact_name, email, requirements, preferred_style")
+    .eq("workspace_id", session.workspace_id)
+    .eq("id", session.business_id)
+    .maybeSingle();
+  assertResult(result, "InsForge could not read the voice business context.");
+  const row = (result.data ?? {}) as Record<string, unknown>;
+  return {
+    name: String(row.name || "New phone inquiry"),
+    category: String(row.category || "Inbound website inquiry"),
+    location: String(row.location || "Phone intake"),
+    contactName: String(row.contact_name || ""),
+    email: String(row.email || ""),
+    requirements: String(row.requirements || ""),
+    preferredStyle: String(row.preferred_style || ""),
+  };
+}
+
+function cleanField(value: unknown, max: number) {
+  return typeof value === "string"
+    ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max)
+    : "";
+}
+
+export async function saveVoiceBusinessIntake(session: TelephonySessionRow, input: Record<string, unknown>) {
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const mappings = [
+    ["business_name", "name", 160],
+    ["business_category", "category", 120],
+    ["location", "location", 160],
+    ["contact_name", "contact_name", 120],
+    ["website_requirements", "requirements", 12_000],
+    ["preferred_style", "preferred_style", 4_000],
+  ] as const;
+  for (const [source, target, max] of mappings) {
+    const value = cleanField(input[source], max);
+    if (value) patch[target] = value;
+  }
+  const email = cleanField(input.email, 320).toLowerCase();
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) patch.email = email;
+  patch.stage = "interested";
+  patch.next_action = "Review phone intake and prepare a compliant quote";
+  patch.next_action_at = new Date().toISOString();
+  const client = await adminClient();
+  const updated = await client.database.from("businesses").update(patch)
+    .eq("workspace_id", session.workspace_id).eq("id", session.business_id);
+  assertResult(updated, "InsForge could not save the website intake.");
+  const audit = await client.database.from("audit_events").insert([{
+    id: `aud_${randomUUID()}`,
+    workspace_id: session.workspace_id,
+    actor_id: "voice-agent",
+    action: "voice.website_intake_saved",
+    entity_type: "business",
+    entity_id: session.business_id,
+    detail: "GPT Realtime saved the caller-confirmed business profile and website brief; quote and payment gates remain required.",
+    created_at: new Date().toISOString(),
+  }]);
+  assertResult(audit, "InsForge could not record the website intake audit event.");
+  return { saved: true, nextStep: "operator_quote_and_secure_checkout" };
+}
+
 export async function getTelephonySession(id: string) {
-  const result = await adminClient().database.from("telephony_sessions")
+  const client = await adminClient();
+  const result = await client.database.from("telephony_sessions")
     .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
     .eq("id", id)
     .maybeSingle();
@@ -92,7 +250,8 @@ export async function updateTelephonySession(id: string, patch: TelephonySession
   if (patch.duration_seconds !== undefined) sanitized.duration_seconds = Math.max(0, Math.min(86_400, Math.round(patch.duration_seconds)));
   if (patch.cost_cents !== undefined) sanitized.cost_cents = Math.max(0, Math.min(2_147_483_647, Math.round(patch.cost_cents)));
   sanitized.updated_at = new Date().toISOString();
-  const result = await adminClient().database.from("telephony_sessions").update(sanitized).eq("id", id);
+  const client = await adminClient();
+  const result = await client.database.from("telephony_sessions").update(sanitized).eq("id", id);
   assertResult(result, "InsForge could not update the telephony session.");
 }
 
@@ -103,7 +262,8 @@ export function telephonySessionMatchesProvider(session: TelephonySessionRow, pa
 }
 
 export async function markBusinessDoNotCall(session: TelephonySessionRow) {
-  const result = await adminClient().database.from("businesses").update({
+  const client = await adminClient();
+  const result = await client.database.from("businesses").update({
     do_not_call: true,
     stage: "dnc",
     next_action: "No outreach permitted",
@@ -132,7 +292,8 @@ export async function recordTelephonyEvent(input: {
   providerCallId?: string | null;
   payload?: Record<string, string>;
 }) {
-  const result = await adminClient().database.from("telephony_events").insert([{
+  const client = await adminClient();
+  const result = await client.database.from("telephony_events").insert([{
     id: `tev_${randomUUID()}`,
     workspace_id: input.session.workspace_id,
     session_id: input.session.id,
