@@ -2,9 +2,34 @@ import { NextResponse } from "next/server";
 import { validatePlivoSignature, createPlivoAnswer } from "@/lib/integrations/plivo";
 import { normalizeE164, PlivoRequestError, readPlivoForm } from "@/lib/integrations/plivo-protocol";
 import { getOrCreateInboundTelephonySession, recordTelephonyEvent, updateTelephonySession } from "@/lib/integrations/telephony-store";
+import { BUILDSTAX_DEMO_PHONE } from "@/lib/public-demo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function inboundFailureStage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (/workspace and campaign/i.test(message)) return "configuration";
+  if (/check the inbound telephony session/i.test(message)) return "session-read";
+  if (/check the inbound business record/i.test(message)) return "business-read";
+  if (/create the inbound business record/i.test(message)) return "business-create";
+  if (/create the telephony session/i.test(message)) return "session-create";
+  if (/telephony event/i.test(message)) return "event-write";
+  if (/stream|PLIVO_PUBLIC_BASE_URL/i.test(message)) return "answer-xml";
+  return "internal";
+}
+
+function inboundDiagnostic(error: unknown) {
+  if (!(error instanceof Error)) return "Unknown error";
+  const cause = "cause" in error
+    ? error.cause instanceof Error
+      ? `${error.cause.name}: ${error.cause.message}`
+      : JSON.stringify(error.cause)
+    : "";
+  return `${error.name}: ${error.message}${cause ? `; ${cause}` : ""}`
+    .replace(/[^A-Za-z0-9 .,:;_/-]/g, "")
+    .slice(0, 220);
+}
 
 export async function POST(request: Request) {
   try {
@@ -21,7 +46,7 @@ export async function POST(request: Request) {
     }
     const fromNumber = normalizeE164(params.From || "");
     const toNumber = normalizeE164(params.To || "");
-    const ownedNumbers = new Set([process.env.PLIVO_PRIMARY_NUMBER, process.env.PLIVO_TEST_NUMBER].filter(Boolean));
+    const ownedNumbers = new Set([BUILDSTAX_DEMO_PHONE, process.env.PLIVO_PRIMARY_NUMBER, process.env.PLIVO_TEST_NUMBER].filter(Boolean));
     if (!ownedNumbers.has(toNumber)) return new NextResponse("Unknown destination", { status: 403 });
 
     const session = await getOrCreateInboundTelephonySession({ callId, fromNumber, toNumber });
@@ -57,6 +82,13 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof PlivoRequestError) return new NextResponse(error.message, { status: error.status });
-    return new NextResponse("Inbound voice intake unavailable", { status: 503 });
+    console.error("Inbound Plivo voice intake failed", error);
+    return new NextResponse("Inbound voice intake unavailable", {
+      status: 503,
+      headers: {
+        "x-buildstax-failure-stage": inboundFailureStage(error),
+        "x-buildstax-diagnostic": inboundDiagnostic(error),
+      },
+    });
   }
 }

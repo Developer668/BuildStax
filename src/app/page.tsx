@@ -1,12 +1,6 @@
 import type { Metadata } from "next";
 import { LandingPage } from "@/components/landing/landing-page";
-
-const fallbackPhone = "+13307377690";
-
-function publicPhoneNumber() {
-  const configured = process.env.PLIVO_PRIMARY_NUMBER?.trim() ?? "";
-  return /^\+[1-9]\d{7,14}$/.test(configured) ? configured : fallbackPhone;
-}
+import { resolveBuildStaxDemoPhone } from "@/lib/public-demo";
 
 function formatPhone(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -28,6 +22,6 @@ export const metadata: Metadata = {
 };
 
 export default function HomePage() {
-  const phone = publicPhoneNumber();
+  const phone = resolveBuildStaxDemoPhone(process.env.PLIVO_PRIMARY_NUMBER);
   return <LandingPage phoneDisplay={formatPhone(phone)} phoneHref={`tel:${phone}`} />;
 }

@@ -122,7 +122,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
             <div className={styles.heroCopy}>
               <div className={styles.eyebrow}>
                 <span className={styles.liveDot} aria-hidden="true" />
-                THE AI WEBSITE LINE <span aria-hidden="true">/</span> LIVE NOW
+                THE AI WEBSITE LINE <span aria-hidden="true">/</span> CALL TO TRY
               </div>
               <h1 id="hero-title" className={styles.heroTitle}>BuildStax.</h1>
               <p className={styles.heroPromise}>Call your website into motion.</p>
@@ -149,10 +149,10 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
               </div>
 
               <div className={styles.callMeta}>
-                <span>LIVE AI VOICE</span><i aria-hidden="true" /><span>NO SIGNUP REQUIRED</span>
+                <span>AI VOICE DEMO</span><i aria-hidden="true" /><span>NO SIGNUP REQUIRED</span>
               </div>
               <p className={styles.disclosure}>
-                You&apos;ll speak with an AI voice agent. Calls are transcribed, and details you confirm are saved to prepare your website brief. Standard carrier rates may apply. No card details are collected on the call.
+                The demo line connects you with an AI voice agent. Calls may be transcribed, and details you confirm may be saved to prepare your website brief. Standard carrier rates may apply. No card details are collected on the call.
               </p>
             </div>
 
@@ -222,7 +222,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
             </div>
 
             <div className={styles.previewWrap} data-reveal>
-              <div className={styles.previewLabel}><FileCheck2 aria-hidden="true" /> BRIEF_TO_PREVIEW.build</div>
+              <div className={styles.previewLabel}><FileCheck2 aria-hidden="true" /> BRIEF_PREVIEW.concept</div>
               <div className={styles.browserFrame}>
                 <div className={styles.browserBar}><span /><span /><span /><p>tideandtimber.local</p></div>
                 <div className={styles.browserImage}>
@@ -234,7 +234,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
                   </div>
                 </div>
               </div>
-              <div className={styles.buildStatus}><span /><p>PREVIEW ASSEMBLED</p><strong>03:42</strong></div>
+              <div className={styles.buildStatus}><span /><p>CONCEPT PREVIEW</p><strong>03:42</strong></div>
             </div>
           </div>
         </section>
@@ -247,7 +247,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
             </div>
             <a className={styles.finalCall} href={phoneHref} aria-label={`Call the BuildStax AI at ${phoneDisplay}`}>
               <PhoneCall aria-hidden="true" />
-              <span><small>CALL THE BUILDSTAX AI</small>{phoneDisplay}</span>
+              <span><small>CALL THE DEMO LINE</small>{phoneDisplay}</span>
               <ArrowDownRight aria-hidden="true" />
             </a>
           </div>

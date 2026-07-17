@@ -22,6 +22,7 @@ test("mobile navigation and pipeline remain usable without horizontal viewport o
 });
 
 test("public landing page keeps the phone line and next section visible on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "BuildStax." })).toBeVisible();
   await expect(page.getByRole("link", { name: "Call BuildStax at +1 (330) 737-7690" })).toBeVisible();

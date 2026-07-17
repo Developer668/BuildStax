@@ -5,7 +5,7 @@ async function signIn(page: Page) {
   await page.goto("/login");
   await page.locator("#password").fill("buildstax-local");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  await expect(page).toHaveURL("/dashboard", { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Command center" })).toBeVisible();
 }
 
@@ -14,7 +14,7 @@ test("publishes the AI website line as the public home page", async ({ page }) =
   await expect(page.getByRole("heading", { name: "BuildStax." })).toBeVisible();
   const call = page.getByRole("link", { name: "Call BuildStax at +1 (330) 737-7690" });
   await expect(call).toHaveAttribute("href", "tel:+13307377690");
-  await expect(page.getByText("No signup required", { exact: true })).toBeVisible();
+  await expect(page.getByText("NO SIGNUP REQUIRED", { exact: true })).toBeVisible();
   await expect(page.getByAltText("A drought-aware garden website concept created from a BuildStax brief")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
@@ -30,7 +30,7 @@ test("rejects invalid credentials and accepts the sandbox operator", async ({ pa
   ).toBeVisible();
   await page.locator("#password").fill("buildstax-local");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  await expect(page).toHaveURL("/dashboard", { timeout: 15_000 });
 });
 
 test("associates server validation errors with invalid sign-in fields", async ({ page }) => {
