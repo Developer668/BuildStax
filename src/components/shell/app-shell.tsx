@@ -56,8 +56,8 @@ export function AppShell({ user, workspaceName, sandbox, children }: { user: Use
       const idleId = window.requestIdleCallback(warmNavigation, { timeout: 1_500 });
       return () => window.cancelIdleCallback(idleId);
     }
-    const timer = window.setTimeout(warmNavigation, 800);
-    return () => window.clearTimeout(timer);
+    const timer = globalThis.setTimeout(warmNavigation, 800);
+    return () => globalThis.clearTimeout(timer);
   }, [pathname, router]);
 
   const warmRoute = (href: string) => {
