@@ -28,3 +28,16 @@ test("customer preview preserves a visible next section on mobile", async ({ pag
   expect(heroBottom).toBeLessThan(page.viewportSize()!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test("prospecting and build studio stay within the mobile viewport", async ({ page }) => {
+  await page.goto("/login");
+  await page.locator("#password").fill("buildstax-local");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Command center" })).toBeVisible();
+  for (const [path, heading] of [["/prospecting", "Prospecting"], ["/build-studio", "Build studio"]] as const) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+  await expect(page.getByTitle("Tide & Timber Landscaping local website preview")).toBeVisible();
+});
