@@ -3,16 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 export const buttonVariants = cva(
-  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[5px] border px-3 text-[12px] font-bold transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[8px] border px-3 text-[11px] font-bold transition-[background-color,border-color,color,box-shadow,transform] duration-100 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "border-[#141a0e] bg-accent text-accent-foreground hover:bg-[#a9df3f]",
-        dark: "border-[#151815] bg-[#151815] text-white hover:bg-[#292e29]",
-        secondary: "border-border bg-white text-foreground hover:bg-surface-subtle",
+        primary: "border-[#4559d8] bg-accent text-accent-foreground shadow-[0_1px_2px_rgba(45,56,134,0.18)] hover:bg-[#4659dd]",
+        dark: "border-[#171c2b] bg-[#171c2b] text-white hover:bg-[#252c40]",
+        secondary: "border-border bg-white text-foreground shadow-[0_1px_1px_rgba(18,24,40,0.03)] hover:border-[#cfd3dc] hover:bg-[#f8f9fb]",
         ghost: "border-transparent bg-transparent text-foreground hover:bg-muted",
         danger: "border-[#b73d30] bg-danger text-white hover:bg-[#bd3d30]",
-        link: "h-auto border-transparent bg-transparent px-0 text-brand-blue hover:underline",
+        link: "h-auto border-transparent bg-transparent px-0 text-brand-blue hover:underline active:translate-y-0",
       },
       size: {
         default: "h-9",

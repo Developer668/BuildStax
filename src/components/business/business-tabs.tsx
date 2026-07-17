@@ -24,7 +24,7 @@ export function BusinessTabs({ calls, messages, quotes, payments, project }: { c
     <Tabs.Root defaultValue="activity" className="panel overflow-hidden">
       <Tabs.List aria-label="Business workspace views" className="flex overflow-x-auto border-b border-border bg-[#fafbfa] px-2">
         {[['activity', 'Activity'], ['thread', `Thread ${messages.length}`], ['calls', `Calls ${calls.length}`], ['commercial', 'Commercial'], ['project', 'Project']].map(([value, label]) => (
-          <Tabs.Trigger key={value} value={value} className="h-11 shrink-0 border-b-2 border-transparent px-3 text-[10px] font-bold text-muted-foreground data-[state=active]:border-[#151815] data-[state=active]:text-foreground">{label}</Tabs.Trigger>
+          <Tabs.Trigger key={value} value={value} className="h-11 shrink-0 border-b-2 border-transparent px-3 text-[10px] font-bold text-muted-foreground transition-colors duration-100 data-[state=active]:border-[#5266ed] data-[state=active]:text-foreground">{label}</Tabs.Trigger>
         ))}
       </Tabs.List>
 

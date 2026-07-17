@@ -11,13 +11,14 @@ export const metadata: Metadata = {
     template: "%s · BuildStax",
   },
   description: "Sales and delivery operations for website projects.",
+  icons: { icon: "/icon.svg" },
   robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         {children}
         <Toaster position="bottom-right" richColors closeButton />
       </body>

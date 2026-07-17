@@ -35,6 +35,7 @@ function useResult(state: ActionState, setOpen?: (open: boolean) => void) {
       if (state.redirectTo) {
         if (state.redirectTo.startsWith("/")) {
           router.push(state.redirectTo);
+          return;
         } else {
           try {
             const destination = new URL(state.redirectTo);

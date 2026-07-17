@@ -17,6 +17,9 @@ function securityHeaders(microphone: "()" | "(self)") {
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  turbopack: {
+    root: process.cwd(),
+  },
   async headers() {
     return [
       {

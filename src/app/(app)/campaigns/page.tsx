@@ -45,5 +45,5 @@ export default async function CampaignsPage() {
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="border-b border-border bg-[#fafbfa] px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><div className="eyebrow">{label}</div><div className="mono mt-1 text-[15px] font-semibold">{value}</div></div>;
+  return <div className="border-b border-border bg-[#f8f9fb] px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><div className="eyebrow">{label}</div><div className="mono mt-1 text-[15px] font-semibold">{value}</div></div>;
 }

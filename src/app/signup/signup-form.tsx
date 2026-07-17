@@ -17,7 +17,6 @@ export function SignupForm() {
     if (state.status === "success" && state.redirectTo) {
       toast.success(state.message);
       router.replace(state.redirectTo);
-      router.refresh();
     }
   }, [router, state]);
   return (

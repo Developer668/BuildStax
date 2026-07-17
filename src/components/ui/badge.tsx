@@ -2,13 +2,13 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const tones = {
-  neutral: "border-[#d5dad4] bg-[#f1f3f0] text-[#596159]",
-  info: "border-[#c8d6ff] bg-[#edf2ff] text-[#244fbf]",
-  warning: "border-[#edd4aa] bg-[#fff7e8] text-[#8a5312]",
-  success: "border-[#b8dec7] bg-[#edf8f1] text-[#21683f]",
-  danger: "border-[#efc4bd] bg-[#fff0ed] text-[#a33d31]",
+  neutral: "border-[#dde0e6] bg-[#f3f4f6] text-[#5f6674]",
+  info: "border-[#ccd3fb] bg-[#eef0ff] text-[#4051bd]",
+  warning: "border-[#ead7b8] bg-[#fbf5e9] text-[#84561b]",
+  success: "border-[#bddbd3] bg-[#edf7f4] text-[#236756]",
+  danger: "border-[#ebc4c4] bg-[#fff0f0] text-[#9f3f3f]",
 } as const;
 
 export function Badge({ tone = "neutral", className, ...props }: HTMLAttributes<HTMLSpanElement> & { tone?: keyof typeof tones }) {
-  return <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[10px] font-bold", tones[tone], className)} {...props} />;
+  return <span className={cn("inline-flex h-6 items-center rounded-[6px] border px-2 text-[9px] font-bold capitalize", tones[tone], className)} {...props} />;
 }

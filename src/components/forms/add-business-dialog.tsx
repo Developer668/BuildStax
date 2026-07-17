@@ -22,7 +22,7 @@ export function AddBusinessDialog({ campaigns }: { campaigns: Array<{ id: string
       toast.success(state.message);
       const closeTimer = window.setTimeout(() => setOpen(false), 0);
       if (state.redirectTo) router.push(state.redirectTo);
-      router.refresh();
+      else router.refresh();
       return () => window.clearTimeout(closeTimer);
     }
   }, [router, state]);

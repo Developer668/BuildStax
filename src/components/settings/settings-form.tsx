@@ -50,9 +50,9 @@ export function SettingsForm({ settings }: { settings: Record<string, string> })
 }
 
 function PolicyToggle({ name, defaultChecked, title, description }: { name: string; defaultChecked: boolean; title: string; description: string }) {
-  return <label className="flex cursor-pointer items-start gap-3 px-4 py-4 hover:bg-[#fafbfa] sm:px-5"><input type="checkbox" name={name} defaultChecked={defaultChecked} className="mt-0.5 size-4 accent-[#151815]" /><span><span className="block text-[11px] font-bold">{title}</span><span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{description}</span></span></label>;
+  return <label className="flex cursor-pointer items-start gap-3 px-4 py-4 hover:bg-[#f8f9fb] sm:px-5"><input type="checkbox" name={name} defaultChecked={defaultChecked} className="mt-0.5 size-4 accent-[#5266ed]" /><span><span className="block text-[11px] font-bold">{title}</span><span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{description}</span></span></label>;
 }
 
 function EnforcedPolicy({ title, description }: { title: string; description: string }) {
-  return <div className="flex items-start gap-3 px-4 py-4 sm:px-5"><span aria-hidden="true" className="mt-0.5 grid size-4 place-items-center rounded-[3px] bg-[#151815] text-white"><Check className="size-3" /></span><span><span className="block text-[11px] font-bold">{title}</span><span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{description}</span></span></div>;
+  return <div className="flex items-start gap-3 px-4 py-4 sm:px-5"><span aria-hidden="true" className="mt-0.5 grid size-4 place-items-center rounded-[4px] bg-[#5266ed] text-white"><Check className="size-3" /></span><span><span className="block text-[11px] font-bold">{title}</span><span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{description}</span></span></div>;
 }
