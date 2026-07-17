@@ -1,0 +1,12 @@
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Tooling and operating system artifacts
+.DS_Store
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+*.log
