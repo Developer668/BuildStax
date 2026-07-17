@@ -87,6 +87,11 @@ export function normalizeE164(value: string) {
   return normalized;
 }
 
+export function normalizePlivoE164(value: string) {
+  const normalized = value.trim();
+  return normalizeE164(normalized.startsWith("+") ? normalized : `+${normalized}`);
+}
+
 function xmlEscape(value: string) {
   return value
     .replaceAll("&", "&amp;")

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { validatePlivoSignature, createPlivoAnswer } from "@/lib/integrations/plivo";
-import { normalizeE164, PlivoRequestError, readPlivoForm } from "@/lib/integrations/plivo-protocol";
+import { normalizePlivoE164, PlivoRequestError, readPlivoForm } from "@/lib/integrations/plivo-protocol";
 import { getOrCreateInboundTelephonySession, recordTelephonyEvent, updateTelephonySession } from "@/lib/integrations/telephony-store";
 import { BUILDSTAX_DEMO_PHONE } from "@/lib/public-demo";
 
@@ -44,8 +44,8 @@ export async function POST(request: Request) {
     if (!/^[A-Za-z0-9_-]{8,160}$/.test(callId) || params.Direction !== "inbound") {
       return new NextResponse("Invalid inbound call", { status: 400 });
     }
-    const fromNumber = normalizeE164(params.From || "");
-    const toNumber = normalizeE164(params.To || "");
+    const fromNumber = normalizePlivoE164(params.From || "");
+    const toNumber = normalizePlivoE164(params.To || "");
     const ownedNumbers = new Set([BUILDSTAX_DEMO_PHONE, process.env.PLIVO_PRIMARY_NUMBER, process.env.PLIVO_TEST_NUMBER].filter(Boolean));
     if (!ownedNumbers.has(toNumber)) return new NextResponse("Unknown destination", { status: 403 });
 

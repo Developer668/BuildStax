@@ -3,6 +3,7 @@ import {
   buildPlivoStreamXml,
   createPlivoStreamToken,
   normalizeE164,
+  normalizePlivoE164,
   plivoStreamUrl,
   publicRequestUrlCandidates,
   readPlivoForm,
@@ -37,6 +38,8 @@ describe("Plivo stream protocol", () => {
     expect(normalizeE164("+1 (330) 737-7690")).toBe("+13307377690");
     expect(() => normalizeE164("330-737-7690")).toThrow(/E\.164/);
     expect(() => normalizeE164("+00000000")).toThrow(/E\.164/);
+    expect(normalizePlivoE164("13307377690")).toBe("+13307377690");
+    expect(normalizePlivoE164("+13307377690")).toBe("+13307377690");
   });
 
   it("builds escaped bidirectional PCMU XML", () => {
