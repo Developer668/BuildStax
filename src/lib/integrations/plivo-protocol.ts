@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const STREAM_TOKEN_VERSION = 1;
 const DEFAULT_TOKEN_TTL_SECONDS = 180;
@@ -28,6 +28,20 @@ function safeEqual(left: string, right: string) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function compactSessionId(sessionId: string) {
+  return sessionId.slice(4).replaceAll("-", "").toLowerCase();
+}
+
+function expandSessionId(value: string) {
+  if (!/^[0-9a-f]{32}$/.test(value)) return "";
+  return `tel_${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function base36Integer(value: string) {
+  if (!/^[0-9a-z]{1,10}$/.test(value)) return Number.NaN;
+  return Number.parseInt(value, 36);
+}
+
 export function createPlivoStreamToken(
   input: Pick<PlivoStreamTokenPayload, "sessionId" | "callId" | "direction">,
   secret: string,
@@ -42,40 +56,54 @@ export function createPlivoStreamToken(
     throw new Error("The Plivo stream token lifetime is invalid.");
   }
   const issuedAt = Math.floor(now / 1000);
-  const payload: PlivoStreamTokenPayload = {
-    v: STREAM_TOKEN_VERSION,
-    ...input,
-    iat: issuedAt,
-    exp: issuedAt + ttlSeconds,
-    nonce: randomBytes(12).toString("base64url"),
-  };
-  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return `${encoded}.${hmac(encoded, secret)}`;
+  const unsigned = [
+    STREAM_TOKEN_VERSION.toString(36),
+    compactSessionId(input.sessionId),
+    Buffer.from(input.callId, "utf8").toString("base64url"),
+    input.direction === "inbound" ? "i" : "o",
+    issuedAt.toString(36),
+    (issuedAt + ttlSeconds).toString(36),
+  ].join(".");
+  return `${unsigned}.${hmac(unsigned, secret)}`;
 }
 
 export function verifyPlivoStreamToken(token: string, secret: string, now = Date.now()) {
-  if (secret.length < 32 || token.length > 2_048) return null;
-  const [encoded, suppliedSignature, extra] = token.split(".");
-  if (!encoded || !suppliedSignature || extra || !safeEqual(suppliedSignature, hmac(encoded, secret))) return null;
+  if (secret.length < 32 || token.length > 512) return null;
+  const [version, compactSession, encodedCallId, compactDirection, issuedAtValue, expiresAtValue, suppliedSignature, extra] = token.split(".");
+  if (!version || !compactSession || !encodedCallId || !compactDirection || !issuedAtValue || !expiresAtValue || !suppliedSignature || extra) {
+    return null;
+  }
+  const unsigned = [version, compactSession, encodedCallId, compactDirection, issuedAtValue, expiresAtValue].join(".");
+  if (!safeEqual(suppliedSignature, hmac(unsigned, secret))) return null;
   try {
-    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Partial<PlivoStreamTokenPayload>;
+    const sessionId = expandSessionId(compactSession);
+    const callId = Buffer.from(encodedCallId, "base64url").toString("utf8");
+    if (Buffer.from(callId, "utf8").toString("base64url") !== encodedCallId) return null;
+    const direction = compactDirection === "i" ? "inbound" : compactDirection === "o" ? "outbound" : null;
     const nowSeconds = Math.floor(now / 1000);
-    const issuedAt = payload.iat;
-    const expiresAt = payload.exp;
+    const issuedAt = base36Integer(issuedAtValue);
+    const expiresAt = base36Integer(expiresAtValue);
     if (
-      payload.v !== STREAM_TOKEN_VERSION ||
-      typeof payload.sessionId !== "string" || !SESSION_ID_PATTERN.test(payload.sessionId) ||
-      typeof payload.callId !== "string" || !CALL_ID_PATTERN.test(payload.callId) ||
-      (payload.direction !== "inbound" && payload.direction !== "outbound") ||
-      typeof issuedAt !== "number" || !Number.isSafeInteger(issuedAt) ||
-      typeof expiresAt !== "number" || !Number.isSafeInteger(expiresAt) ||
-      typeof payload.nonce !== "string" || !/^[A-Za-z0-9_-]{16}$/.test(payload.nonce) ||
+      version !== STREAM_TOKEN_VERSION.toString(36) ||
+      !SESSION_ID_PATTERN.test(sessionId) ||
+      !CALL_ID_PATTERN.test(callId) ||
+      !direction ||
+      !Number.isSafeInteger(issuedAt) ||
+      !Number.isSafeInteger(expiresAt) ||
       expiresAt <= issuedAt ||
       expiresAt - issuedAt > MAX_TOKEN_TTL_SECONDS ||
       issuedAt > nowSeconds + MAX_CLOCK_SKEW_SECONDS ||
       expiresAt < nowSeconds - MAX_CLOCK_SKEW_SECONDS
     ) return null;
-    return payload as PlivoStreamTokenPayload;
+    return {
+      v: STREAM_TOKEN_VERSION,
+      sessionId,
+      callId,
+      direction,
+      iat: issuedAt,
+      exp: expiresAt,
+      nonce: suppliedSignature.slice(0, 16),
+    } satisfies PlivoStreamTokenPayload;
   } catch {
     return null;
   }

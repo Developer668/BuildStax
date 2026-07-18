@@ -34,6 +34,21 @@ describe("Plivo stream protocol", () => {
     }, secret, issuedAt, 600)).toThrow(/lifetime/);
   });
 
+  it("keeps a production Plivo WebSocket URL below the provider's 255-character boundary", () => {
+    const token = createPlivoStreamToken({
+      sessionId: "tel_12345678-1234-1234-1234-123456789abc",
+      callId: "bcf5afd5-8173-433d-a247-05b5eda2d656",
+      direction: "inbound",
+    }, secret, issuedAt);
+    const stream = plivoStreamUrl("https://buildstax-voice-dfd1e338-3e76-430a-9fd5-5ee9f410385b.fly.dev", token);
+
+    expect(stream.length).toBeLessThanOrEqual(255);
+    expect(verifyPlivoStreamToken(token, secret, issuedAt + 30_000)).toMatchObject({
+      callId: "bcf5afd5-8173-433d-a247-05b5eda2d656",
+      direction: "inbound",
+    });
+  });
+
   it("normalizes safe E.164 input and rejects ambiguous destinations", () => {
     expect(normalizeE164("+1 (330) 737-7690")).toBe("+13307377690");
     expect(() => normalizeE164("330-737-7690")).toThrow(/E\.164/);

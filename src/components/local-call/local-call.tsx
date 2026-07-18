@@ -170,7 +170,7 @@ export function LocalCall() {
         <section className={styles.callPanel} aria-labelledby="local-call-title">
           <div className={styles.callHeader}>
             <div>
-              <p className="eyebrow">GPT Realtime 2.1 Mini</p>
+              <p className="eyebrow">OpenAI Realtime 2.1</p>
               <h1 id="local-call-title">Website intake call</h1>
             </div>
             <span className={styles.timer}>{formatDuration(seconds)}</span>

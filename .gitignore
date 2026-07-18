@@ -17,6 +17,7 @@ data/*.db-wal
 data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
+data/voice-bridge/
 .venv/
 __pycache__/
 *.py[cod]

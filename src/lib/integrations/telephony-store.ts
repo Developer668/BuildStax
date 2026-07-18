@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 type TelephonySessionStatus = "requested" | "ringing" | "in_progress" | "completed" | "failed" | "cancelled";
 type TelephonySessionPatch = Partial<{
@@ -35,6 +37,54 @@ export type VoiceBusinessContext = {
   preferredStyle: string;
 };
 
+function localBridgeEnabled() {
+  return process.env.PLIVO_LOCAL_BRIDGE === "true" && process.env.NODE_ENV !== "production";
+}
+
+function localVoiceDirectory() {
+  return path.join(process.cwd(), "data", "voice-bridge");
+}
+
+function localRecordPath(kind: "session" | "context" | "event" | "audit", id: string) {
+  const safeId = createHash("sha256").update(id).digest("hex");
+  return path.join(localVoiceDirectory(), `${kind}-${safeId}.json`);
+}
+
+async function readLocalRecord<T>(kind: "session" | "context", id: string) {
+  try {
+    return JSON.parse(await readFile(localRecordPath(kind, id), "utf8")) as T;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writeLocalRecord(kind: "session" | "context" | "audit", id: string, value: unknown) {
+  const directory = localVoiceDirectory();
+  await mkdir(directory, { recursive: true });
+  const target = localRecordPath(kind, id);
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  await writeFile(temporary, JSON.stringify(value), { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, target);
+}
+
+async function createLocalEvent(idempotencyKey: string, value: unknown) {
+  await mkdir(localVoiceDirectory(), { recursive: true });
+  const target = localRecordPath("event", idempotencyKey);
+  try {
+    const handle = await open(target, "wx", 0o600);
+    try {
+      await handle.writeFile(JSON.stringify(value), "utf8");
+    } finally {
+      await handle.close();
+    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
 async function adminClient() {
   const baseUrl = process.env.NEXT_PUBLIC_INSFORGE_URL;
   const apiKey = process.env.INSFORGE_API_KEY;
@@ -64,6 +114,19 @@ export async function createTelephonySession(input: {
   providerCallId?: string;
   answeredAt?: string;
 }) {
+  if (localBridgeEnabled()) {
+    const session: TelephonySessionRow = {
+      id: input.id,
+      workspace_id: "local_voice",
+      business_id: input.businessId,
+      status: input.status,
+      direction: input.direction,
+      provider_call_id: input.providerCallId || null,
+      transcript: "",
+    };
+    await writeLocalRecord("session", input.id, session);
+    return;
+  }
   const client = await adminClient();
   const result = await client.database.from("telephony_sessions").insert([{
     id: input.id,
@@ -97,13 +160,45 @@ export async function getOrCreateInboundTelephonySession(input: {
   fromNumber: string;
   toNumber: string;
 }) {
+  const sessionId = deterministicId("tel", input.callId);
+  if (localBridgeEnabled()) {
+    const existing = await readLocalRecord<TelephonySessionRow>("session", sessionId);
+    if (existing) return existing;
+    const businessId = deterministicId("biz_inbound", `local:${input.fromNumber}`);
+    const context = await readLocalRecord<VoiceBusinessContext>("context", businessId);
+    if (!context) {
+      await writeLocalRecord("context", businessId, {
+        name: `New phone inquiry ${input.fromNumber.slice(-4)}`,
+        category: "Inbound website inquiry",
+        location: "Phone intake",
+        contactName: "",
+        email: "",
+        requirements: "",
+        preferredStyle: "",
+      } satisfies VoiceBusinessContext);
+    }
+    await createTelephonySession({
+      id: sessionId,
+      workspaceId: "local_voice",
+      businessId,
+      direction: "inbound",
+      status: "in_progress",
+      mode: "live",
+      fromNumber: input.fromNumber,
+      toNumber: input.toNumber,
+      providerCallId: input.callId,
+      answeredAt: new Date().toISOString(),
+    });
+    const session = await readLocalRecord<TelephonySessionRow>("session", sessionId);
+    if (!session) throw new Error("The local inbound telephony session could not be created.");
+    return session;
+  }
   const workspaceId = process.env.PLIVO_INBOUND_WORKSPACE_ID?.trim() || "";
   const campaignId = process.env.PLIVO_INBOUND_CAMPAIGN_ID?.trim() || "";
   if (!/^[0-9a-f-]{36}$/i.test(workspaceId) || !/^cmp_[0-9a-f-]{36}$/i.test(campaignId)) {
     throw new Error("The inbound voice workspace and campaign are not configured.");
   }
   const client = await adminClient();
-  const sessionId = deterministicId("tel", input.callId);
   const existingSession = await client.database.from("telephony_sessions")
     .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
     .eq("id", sessionId)
@@ -167,6 +262,17 @@ export async function getOrCreateInboundTelephonySession(input: {
 }
 
 export async function getVoiceBusinessContext(session: TelephonySessionRow): Promise<VoiceBusinessContext> {
+  if (localBridgeEnabled()) {
+    return (await readLocalRecord<VoiceBusinessContext>("context", session.business_id)) ?? {
+      name: "New phone inquiry",
+      category: "Inbound website inquiry",
+      location: "Phone intake",
+      contactName: "",
+      email: "",
+      requirements: "",
+      preferredStyle: "",
+    };
+  }
   const client = await adminClient();
   const result = await client.database.from("businesses")
     .select("name, category, location, contact_name, email, requirements, preferred_style")
@@ -211,6 +317,25 @@ export async function saveVoiceBusinessIntake(session: TelephonySessionRow, inpu
   patch.stage = "interested";
   patch.next_action = "Review phone intake and prepare a compliant quote";
   patch.next_action_at = new Date().toISOString();
+  if (localBridgeEnabled()) {
+    const current = await getVoiceBusinessContext(session);
+    const updated: VoiceBusinessContext = {
+      name: String(patch.name || current.name),
+      category: String(patch.category || current.category),
+      location: String(patch.location || current.location),
+      contactName: String(patch.contact_name || current.contactName),
+      email: String(patch.email || current.email),
+      requirements: String(patch.requirements || current.requirements),
+      preferredStyle: String(patch.preferred_style || current.preferredStyle),
+    };
+    await writeLocalRecord("context", session.business_id, updated);
+    await writeLocalRecord("audit", `intake:${session.id}:${Date.now()}`, {
+      action: "voice.website_intake_saved",
+      entityId: session.business_id,
+      createdAt: new Date().toISOString(),
+    });
+    return { saved: true, nextStep: "operator_quote_and_secure_checkout" };
+  }
   const client = await adminClient();
   const updated = await client.database.from("businesses").update(patch)
     .eq("workspace_id", session.workspace_id).eq("id", session.business_id);
@@ -230,6 +355,7 @@ export async function saveVoiceBusinessIntake(session: TelephonySessionRow, inpu
 }
 
 export async function getTelephonySession(id: string) {
+  if (localBridgeEnabled()) return readLocalRecord<TelephonySessionRow>("session", id);
   const client = await adminClient();
   const result = await client.database.from("telephony_sessions")
     .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
@@ -250,6 +376,12 @@ export async function updateTelephonySession(id: string, patch: TelephonySession
   if (patch.duration_seconds !== undefined) sanitized.duration_seconds = Math.max(0, Math.min(86_400, Math.round(patch.duration_seconds)));
   if (patch.cost_cents !== undefined) sanitized.cost_cents = Math.max(0, Math.min(2_147_483_647, Math.round(patch.cost_cents)));
   sanitized.updated_at = new Date().toISOString();
+  if (localBridgeEnabled()) {
+    const current = await readLocalRecord<TelephonySessionRow & Record<string, unknown>>("session", id);
+    if (!current) throw new Error("The local telephony session does not exist.");
+    await writeLocalRecord("session", id, { ...current, ...sanitized });
+    return;
+  }
   const client = await adminClient();
   const result = await client.database.from("telephony_sessions").update(sanitized).eq("id", id);
   assertResult(result, "InsForge could not update the telephony session.");
@@ -262,6 +394,16 @@ export function telephonySessionMatchesProvider(session: TelephonySessionRow, pa
 }
 
 export async function markBusinessDoNotCall(session: TelephonySessionRow) {
+  if (localBridgeEnabled()) {
+    const current = await getVoiceBusinessContext(session);
+    await writeLocalRecord("context", session.business_id, { ...current, doNotCall: true });
+    await writeLocalRecord("audit", `dnc:${session.id}:${Date.now()}`, {
+      action: "voice.do_not_call",
+      entityId: session.business_id,
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
   const client = await adminClient();
   const result = await client.database.from("businesses").update({
     do_not_call: true,
@@ -277,7 +419,7 @@ function safePayload(payload: Record<string, string>) {
   const allowed = new Set([
     "CallUUID", "RequestUUID", "StreamID", "Event", "CallStatus", "Direction", "From", "To",
     "Duration", "BillDuration", "TotalCost", "HangupCause", "HangupCauseCode", "HangupSource",
-    "STIRVerification", "StatusReason", "Timestamp",
+    "STIRVerification", "StatusReason", "Error", "Timestamp",
   ]);
   return Object.fromEntries(Object.entries(payload)
     .filter(([key]) => allowed.has(key))
@@ -292,6 +434,15 @@ export async function recordTelephonyEvent(input: {
   providerCallId?: string | null;
   payload?: Record<string, string>;
 }) {
+  if (localBridgeEnabled()) {
+    return createLocalEvent(input.idempotencyKey, {
+      sessionId: input.session.id,
+      eventType: input.eventType.slice(0, 80),
+      providerCallId: input.providerCallId || null,
+      payload: safePayload(input.payload ?? {}),
+      createdAt: new Date().toISOString(),
+    });
+  }
   const client = await adminClient();
   const result = await client.database.from("telephony_events").insert([{
     id: `tev_${randomUUID()}`,

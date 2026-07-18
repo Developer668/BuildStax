@@ -37,6 +37,12 @@ const maxCallSeconds = boundedCallSeconds(process.env.PLIVO_MAX_CALL_SECONDS);
 const maxVoiceConnections = Math.min(Math.max(Number(process.env.PLIVO_MAX_CONCURRENT_STREAMS || 20) || 20, 1), 100);
 const maxSocketBufferBytes = 1024 * 1024;
 
+function localPlivoBridgeEnabled() {
+  // Next loads .env.local while preparing the app, after this module is first
+  // evaluated, so read the flag when the upgrade arrives instead of at startup.
+  return dev && process.env.PLIVO_LOCAL_BRIDGE === "true";
+}
+
 function header(request: IncomingMessage, name: string) {
   const value = request.headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -120,6 +126,9 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
   let plivoStarted = false;
   let realtimeReady = false;
   let greetingRequested = false;
+  let greetingFinished = false;
+  let responseActive = false;
+  let responseQueued = false;
   let dncRequested = false;
   let finished = false;
   const transcript: string[] = [];
@@ -178,7 +187,12 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
   const requestGreeting = () => {
     if (greetingRequested || !plivoStarted || !realtimeReady || realtimeSocket.readyState !== WebSocket.OPEN) return;
     greetingRequested = true;
-    sendJson(realtimeSocket, { type: "response.create", response: { instructions: initialGreeting(), output_modalities: ["audio"] } });
+    responseActive = sendJson(realtimeSocket, { type: "response.create", response: { instructions: initialGreeting(), output_modalities: ["audio"] } });
+  };
+  const requestQueuedResponse = () => {
+    if (!responseQueued || responseActive || !realtimeReady || realtimeSocket.readyState !== WebSocket.OPEN) return;
+    responseQueued = false;
+    responseActive = sendJson(realtimeSocket, { type: "response.create" });
   };
   const handleDoNotCall = async () => {
     if (dncRequested) return;
@@ -249,7 +263,10 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
             format: { type: "audio/pcmu" },
             noise_reduction: { type: "near_field" },
             transcription: { model: "gpt-4o-mini-transcribe", language: "en" },
-            turn_detection: { type: "semantic_vad", eagerness: "auto", create_response: true, interrupt_response: true },
+            // VAD continuously detects and commits caller turns. The bridge
+            // queues response.create itself so GPT never receives overlapping
+            // response requests while the greeting or another turn is active.
+            turn_detection: { type: "semantic_vad", eagerness: "auto", create_response: false, interrupt_response: false },
           },
           output: { format: { type: "audio/pcmu" }, voice: settings.voice, speed: 1.0 },
         },
@@ -262,6 +279,15 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
     const event = safeJson(data);
     if (!event) return;
     const type = safeVoiceText(event.type, 100);
+    if (type === "response.created") {
+      responseActive = true;
+      return;
+    }
+    if (type === "response.done") {
+      responseActive = false;
+      requestQueuedResponse();
+      return;
+    }
     if (type === "session.updated") {
       realtimeReady = true;
       requestGreeting();
@@ -277,7 +303,16 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
       return;
     }
     if (type === "input_audio_buffer.speech_started" && streamId && plivoSocket.readyState === WebSocket.OPEN) {
-      sendJson(plivoSocket, { event: "clearAudio", streamId });
+      if (!greetingFinished) return;
+      if (responseActive) {
+        sendJson(plivoSocket, { event: "clearAudio", streamId });
+        sendJson(realtimeSocket, { type: "response.cancel" });
+      }
+      return;
+    }
+    if (type === "input_audio_buffer.speech_stopped") {
+      responseQueued = true;
+      requestQueuedResponse();
       return;
     }
     if (type === "conversation.item.input_audio_transcription.completed") {
@@ -289,8 +324,14 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
       appendTranscript("Agent", event.transcript);
       return;
     }
-    if (type === "response.output_audio.done" && dncRequested) {
-      if (plivoSocket.readyState === WebSocket.OPEN) plivoSocket.close(1000, "Do-not-call request honored");
+    if (type === "response.output_audio.done") {
+      if (!greetingFinished) {
+        greetingFinished = true;
+        if (streamId && plivoSocket.readyState === WebSocket.OPEN) {
+          sendJson(plivoSocket, { event: "checkpoint", streamId, name: "greeting-complete" });
+        }
+      }
+      if (dncRequested && plivoSocket.readyState === WebSocket.OPEN) plivoSocket.close(1000, "Do-not-call request honored");
       return;
     }
     if (type === "response.output_item.done") {
@@ -342,7 +383,10 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
       const callId = safeVoiceText(start.callId, 160);
       const accountId = safeVoiceText(start.accountId, 160);
       const mediaFormat = start.mediaFormat && typeof start.mediaFormat === "object" ? start.mediaFormat as Record<string, unknown> : {};
-      if (callId !== token.callId || accountId !== process.env.PLIVO_AUTH_ID || mediaFormat.encoding !== "audio/x-mulaw" || Number(mediaFormat.sampleRate) !== 8000) {
+      const encoding = safeVoiceText(mediaFormat.encoding, 80).toLowerCase();
+      const pcmu = encoding === "audio/x-mulaw" || encoding === "audio/x-mulaw;rate=8000";
+      const trustedLocalStream = localPlivoBridgeEnabled() && callId === token.callId;
+      if (callId !== token.callId || (!trustedLocalStream && (accountId !== process.env.PLIVO_AUTH_ID || !pcmu || Number(mediaFormat.sampleRate) !== 8000))) {
         plivoSocket.close(1008, "Stream metadata mismatch");
         return;
       }
@@ -415,7 +459,11 @@ server.on("upgrade", (request, socket, head) => {
   if (url.pathname !== voicePath) return upgradeHandler(request, socket, head);
   const token = verifyPlivoStreamToken(url.searchParams.get("token") || "", process.env.PLIVO_STREAM_SECRET || "");
   if (!token) return rejectUpgrade(socket, 401, "Unauthorized");
-  if (!validPlivoUpgrade(request)) return rejectUpgrade(socket, 401, "Unauthorized");
+  // Plivo does not consistently forward its V3 signature headers through quick
+  // development tunnels. The short-lived stream token is independently
+  // authenticated, so local bridge mode can safely use it as the upgrade proof.
+  // Production continues to require both the token and Plivo's V3 signature.
+  if (!localPlivoBridgeEnabled() && !validPlivoUpgrade(request)) return rejectUpgrade(socket, 401, "Unauthorized");
   if (voiceServer.clients.size >= maxVoiceConnections) return rejectUpgrade(socket, 503, "Voice capacity reached");
   voiceServer.handleUpgrade(request, socket, head, (webSocket) => voiceServer.emit("connection", webSocket, request));
 });
