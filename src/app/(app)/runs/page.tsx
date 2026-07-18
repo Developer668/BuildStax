@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, RotateCw } from "lucide-react";
+import { Activity, ChevronDown, MessageSquareText, RotateCw } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ModeBadge, RunStatusBadge } from "@/components/domain/status-badges";
@@ -17,7 +17,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
   const runs = await listAutomationRuns(filters);
   return (
     <>
-      <PageHeader eyebrow="Observability" title="Automation runs" description="A non-sensitive execution record for discovery, delivery, and integration checks." icon={Activity} action={<Link href="/runs" className={buttonVariants({ variant: "secondary" })}><RotateCw /> Refresh</Link>} />
+      <PageHeader eyebrow="Observability" title="Automation runs" description="A non-sensitive execution record for discovery, delivery, and integration checks." icon={Activity} action={<><Link href="/runs/call-transcripts" className={buttonVariants({ variant: "secondary" })}><MessageSquareText /> Call transcripts</Link><Link href="/runs" className={buttonVariants({ variant: "secondary" })}><RotateCw /> Refresh</Link></>} />
       <section className="panel overflow-hidden">
         <form method="get" className="flex flex-col gap-2 border-b border-border bg-[#fafbfa] p-3 sm:flex-row sm:items-center">
           <SelectInput name="status" defaultValue={filters.status ?? "all"} className="h-9 sm:w-44" aria-label="Filter by status"><option value="all">All statuses</option><option value="succeeded">Succeeded</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="running">Running</option></SelectInput>
