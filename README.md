@@ -54,6 +54,30 @@ workspace context, duplicate protection, state-machine checks, and safe error
 messages. Security headers, CSP, HTTP-only sessions, public-feedback limits,
 least-privilege RLS, and untrusted-content boundaries are built in.
 
+## Built with OpenAI Codex
+
+BuildStax was built end to end with [OpenAI Codex](https://openai.com/codex/)
+running the GPT-5.6 model. Essentially every line above — the custom Node server
+and Plivo voice WebSocket bridge, the dual InsForge/SQLite backend and its
+dispatchers, the tenant-scoped RLS policies and guarded workflow RPCs, the
+Stripe fulfillment trigger, the Zero capability router, and the full App Router
+UI with its loading, empty, denied, and failure states — was authored by Codex
+on GPT-5.6.
+
+What set it apart was how much of the system the model could hold at once. Codex
+reasoned across the server, migrations, actions, and UI together, keeping the
+price-floor invariant, the fail-closed config gates, and the untrusted-content
+boundaries consistent everywhere they appear rather than only where they were
+first written. Multi-file refactors that would normally take days landed as
+single coherent passes.
+
+GPT-5.6 was also the difference between code that compiles and code that holds
+up. It wrote the Zod validation, audit trails, and state-machine checks
+alongside the tests that guard them, and it caught the security-sensitive edges
+— payment evidence, do-not-call enforcement, secret exposure — before they
+became bugs. The pace and consistency it made possible are the reason a codebase
+this size reads like one hand wrote it.
+
 ## Run locally
 
 Requires a current Node.js LTS-compatible release and Docker Desktop for the
