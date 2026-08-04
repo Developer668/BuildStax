@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 
 type TimelineItem = { id: string; type: "call" | "message" | "quote" | "payment" | "project"; title: string; body: string; date: string; meta?: string };
 
-export function BusinessTabs({ calls, messages, quotes, payments, project }: { calls: Call[]; messages: Message[]; quotes: Quote[]; payments: Payment[]; project: Project | null }) {
+export function BusinessTabs({ calls, messages, quotes, payments, project, defaultTab }: { calls: Call[]; messages: Message[]; quotes: Quote[]; payments: Payment[]; project: Project | null; defaultTab?: string }) {
   const timeline: TimelineItem[] = [
     ...calls.map((call) => ({ id: call.id, type: "call" as const, title: `Call · ${call.outcome.replaceAll("_", " ")}`, body: call.summary, date: call.createdAt, meta: `${Math.round(call.durationSeconds / 60)} min · ${call.provider}` })),
     ...messages.map((message) => ({ id: message.id, type: "message" as const, title: `${message.direction} ${message.channel}`, body: message.body, date: message.createdAt, meta: message.subject || message.provider })),
@@ -21,7 +21,7 @@ export function BusinessTabs({ calls, messages, quotes, payments, project }: { c
 
   const icons = { call: PhoneCall, message: Mail, quote: FileText, payment: Banknote, project: Rocket };
   return (
-    <Tabs.Root defaultValue="activity" className="panel overflow-hidden">
+    <Tabs.Root defaultValue={['activity', 'thread', 'calls', 'commercial', 'project'].includes(defaultTab ?? "") ? defaultTab : "activity"} className="panel overflow-hidden">
       <Tabs.List aria-label="Business workspace views" className="flex overflow-x-auto border-b border-border bg-[#fafbfa] px-2">
         {[['activity', 'Activity'], ['thread', `Thread ${messages.length}`], ['calls', `Calls ${calls.length}`], ['commercial', 'Commercial'], ['project', 'Project']].map(([value, label]) => (
           <Tabs.Trigger key={value} value={value} className="h-11 shrink-0 border-b-2 border-transparent px-3 text-[10px] font-bold text-muted-foreground data-[state=active]:border-[#151815] data-[state=active]:text-foreground">{label}</Tabs.Trigger>

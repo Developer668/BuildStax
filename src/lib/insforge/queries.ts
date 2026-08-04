@@ -2,6 +2,7 @@ import "server-only";
 
 import { activePipelineStages, type BusinessStage } from "@/lib/domain";
 import type { Business, Campaign, Project } from "@/lib/db/schema";
+import { buildInboxThreads, type InboxThread, type InboxView } from "@/lib/inbox";
 import { createInsForgePublicClient } from "./client";
 import { requireInsForgeContext } from "./context";
 import {
@@ -91,6 +92,25 @@ export async function listBusinesses(filters?: { search?: string; stage?: string
     .map(mapBusiness)
     .filter((business) => !search || [business.name, business.category, business.location, business.contactName].some((value) => value.toLowerCase().includes(search)))
     .map((business) => ({ business, campaignName: business.campaignId ? campaigns.get(business.campaignId) ?? null : null }));
+}
+
+export async function listInboxThreads(filters?: { search?: string; view?: InboxView }): Promise<InboxThread[]> {
+  const { client, workspaceId } = await requireInsForgeContext();
+  const [businessResult, messageResult] = await Promise.all([
+    client.database.from("businesses").select().eq("workspace_id", workspaceId),
+    client.database.from("messages").select().eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
+  ]);
+  const businesses = new Map(expectRows(businessResult, "inbox businesses").map((row) => {
+    const business = mapBusiness(row);
+    return [business.id, business];
+  }));
+  const entries = expectRows(messageResult, "inbox messages")
+    .map(mapMessage)
+    .flatMap((message) => {
+      const business = businesses.get(message.businessId);
+      return business ? [{ business, message }] : [];
+    });
+  return buildInboxThreads(entries, filters);
 }
 
 export async function getBusinessDetail(id: string) {

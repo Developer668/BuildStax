@@ -3,6 +3,7 @@ import {
   audioPayload,
   boundedCallSeconds,
   isDoNotCallRequest,
+  plivoStreamCloseError,
   resolveRealtimeSettings,
   safeVoiceText,
 } from "./voice-protocol";
@@ -45,6 +46,13 @@ describe("voice protocol safeguards", () => {
     expect(audioPayload("AQIDBA==")).toBe("AQIDBA==");
     expect(audioPayload("not base64")) .toBeNull();
     expect(audioPayload("a".repeat(300_000))).toBeNull();
+  });
+
+  it("does not report an unstarted or abnormal stream as completed", () => {
+    expect(plivoStreamCloseError(false, 1008, "Stream start timed out")).toBe("Stream start timed out");
+    expect(plivoStreamCloseError(false, 1000, "")).toBe("Plivo stream closed before media started.");
+    expect(plivoStreamCloseError(true, 1000, "Stream stopped")).toBe("");
+    expect(plivoStreamCloseError(true, 1011, "")).toBe("Plivo stream closed unexpectedly (code 1011).");
   });
 
   it("detects explicit do-not-call requests without matching ordinary phrasing", () => {

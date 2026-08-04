@@ -17,6 +17,10 @@ function env(name: string) {
   return process.env[name]?.trim() || "";
 }
 
+function isProductionEnvironment() {
+  return process.env.NODE_ENV === "production" || process.env.APP_MODE === "production";
+}
+
 function publicBaseUrl() {
   const value = env("PLIVO_PUBLIC_BASE_URL");
   if (!value) throw new Error("PLIVO_PUBLIC_BASE_URL is required before calls can be placed.");
@@ -26,11 +30,11 @@ function publicBaseUrl() {
   if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
     throw new Error("PLIVO_PUBLIC_BASE_URL must be an origin without credentials, a path, query, or fragment.");
   }
-  if (parsed.protocol !== "https:" && !(local && parsed.protocol === "http:" && process.env.NODE_ENV !== "production")) {
+  if (parsed.protocol !== "https:" && !(local && parsed.protocol === "http:" && !isProductionEnvironment())) {
     throw new Error("PLIVO_PUBLIC_BASE_URL must use HTTPS outside local development.");
   }
   if (!local && !isPublicProviderHostname(hostname)) throw new Error("PLIVO_PUBLIC_BASE_URL must use a public DNS hostname.");
-  if (process.env.NODE_ENV === "production" && local) throw new Error("PLIVO_PUBLIC_BASE_URL must be public in production.");
+  if (isProductionEnvironment() && local) throw new Error("PLIVO_PUBLIC_BASE_URL must be public in production.");
   return parsed.origin;
 }
 

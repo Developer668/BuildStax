@@ -66,6 +66,13 @@ export function audioPayload(value: unknown, maxCharacters = MAX_AUDIO_PAYLOAD_C
   return /^[A-Za-z0-9+/]*={0,2}$/.test(value) ? value : null;
 }
 
+export function plivoStreamCloseError(started: boolean, code: number, reason: string) {
+  const detail = safeVoiceText(reason, 500);
+  if (!started) return detail || "Plivo stream closed before media started.";
+  if (code === 1000) return "";
+  return detail || `Plivo stream closed unexpectedly (code ${code}).`;
+}
+
 export function isDoNotCallRequest(value: string) {
   const normalized = value.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
   return [

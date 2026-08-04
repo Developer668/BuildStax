@@ -8,6 +8,7 @@
 node_modules/
 .next/
 .next-e2e/
+.next-ui/
 coverage/
 playwright-report/
 test-results/
@@ -18,6 +19,8 @@ data/*.db-wal
 data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
+data/build-artifacts/
+data/build-artifacts-e2e/
 .venv/
 __pycache__/
 *.py[cod]

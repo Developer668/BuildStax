@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth/session";
 import {
   buildLocalRealtimeSession,
+  isAllowedLocalCallOrigin,
+  isLocalCallAllowed,
   isValidLocalSdp,
   LOCAL_CALL_MAX_SDP_BYTES,
 } from "@/lib/integrations/local-realtime";
@@ -9,8 +12,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  if (process.env.NODE_ENV === "production") {
+  if (!isLocalCallAllowed()) {
     return new NextResponse("Not found", { status: 404 });
+  }
+  const user = await getCurrentUser();
+  if (!user) return new NextResponse("Authentication required", { status: 401, headers: { "cache-control": "no-store" } });
+  if (user.role !== "owner" && user.role !== "operator") {
+    return new NextResponse("Operator access required", { status: 403, headers: { "cache-control": "no-store" } });
   }
 
   const origin = request.headers.get("origin");
@@ -19,7 +27,7 @@ export async function POST(request: Request) {
       .split(",", 1)[0]
       .trim()
       .toLowerCase();
-    if (!requestHost || new URL(origin).host.toLowerCase() !== requestHost) {
+    if (!isAllowedLocalCallOrigin(origin, requestHost)) {
       return new NextResponse("Cross-origin local calls are not allowed", { status: 403 });
     }
   }

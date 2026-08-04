@@ -98,9 +98,9 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
     <div ref={rootRef} className={styles.page}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <Link href="/" className={styles.brand} aria-label="BuildStax home">
+          <Link href="/" className={styles.brand} aria-label="BuildLabs home">
             <span className={styles.brandMark} aria-hidden="true"><i /><i /><i /></span>
-            <span>BUILDSTAX</span>
+            <span>BUILDLABS</span>
           </Link>
           <nav className={styles.nav} aria-label="Landing page navigation">
             <a href="#how-it-works">How it works</a>
@@ -124,16 +124,16 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
                 <span className={styles.liveDot} aria-hidden="true" />
                 THE AI WEBSITE LINE <span aria-hidden="true">/</span> CALL TO TRY
               </div>
-              <h1 id="hero-title" className={styles.heroTitle}>BuildStax.</h1>
+              <h1 id="hero-title" className={styles.heroTitle}>BuildLabs.</h1>
               <p className={styles.heroPromise}>Call your website into motion.</p>
               <p className={styles.heroDeck}>
                 Tell our AI about your business, what the site needs to do, and how it should feel. The conversation becomes a confirmed website brief, ready for review.
               </p>
 
               <div className={styles.callRow}>
-                <a className={styles.callButton} href={phoneHref} aria-label={`Call BuildStax at ${phoneDisplay}`}>
+                <a className={styles.callButton} href={phoneHref} aria-label={`Call BuildLabs at ${phoneDisplay}`}>
                   <span className={styles.phoneIcon}><PhoneCall aria-hidden="true" /></span>
-                  <span><small>CALL BUILDSTAX</small>{phoneDisplay}</span>
+                  <span><small>CALL BUILDLABS</small>{phoneDisplay}</span>
                   <ArrowRight className={styles.callArrow} aria-hidden="true" />
                 </a>
                 <button
@@ -157,7 +157,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
             </div>
 
             <div className={styles.heroScene} aria-hidden="true">
-              <div className={styles.mascotBubble}><span>STAX // FOREMAN_01</span><strong>LET&apos;S STACK SOMETHING.</strong></div>
+              <div className={styles.mascotBubble}><span>STAX // FOREMAN_01</span><strong>LET&apos;S BUILD SOMETHING.</strong></div>
               <div className={`${styles.siteBlock} ${styles.siteBlockOne}`}><i /><i /><i /></div>
               <div className={`${styles.siteBlock} ${styles.siteBlockTwo}`}><i /><i /></div>
               <div className={styles.pixelSparkOne}>+</div>
@@ -226,7 +226,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
               <div className={styles.browserFrame}>
                 <div className={styles.browserBar}><span /><span /><span /><p>tideandtimber.local</p></div>
                 <div className={styles.browserImage}>
-                  <Image src="/images/tide-timber-garden.png" alt="A drought-aware garden website concept created from a BuildStax brief" fill sizes="(max-width: 900px) 92vw, 48vw" />
+                  <Image src="/images/tide-timber-garden.png" alt="A drought-aware garden website concept created from a BuildLabs brief" fill sizes="(max-width: 900px) 92vw, 48vw" />
                   <div className={styles.browserOverlay}>
                     <span>EAST BAY / CALIFORNIA</span>
                     <strong>Outdoor spaces,<br />built to belong.</strong>
@@ -245,7 +245,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
               <span className={styles.finalKicker}>YOUR NEXT SITE STARTS WITH HELLO.</span>
               <h2 id="final-title">One call.<br />A clear next step.</h2>
             </div>
-            <a className={styles.finalCall} href={phoneHref} aria-label={`Call the BuildStax AI at ${phoneDisplay}`}>
+            <a className={styles.finalCall} href={phoneHref} aria-label={`Call the BuildLabs AI at ${phoneDisplay}`}>
               <PhoneCall aria-hidden="true" />
               <span><small>CALL THE DEMO LINE</small>{phoneDisplay}</span>
               <ArrowDownRight aria-hidden="true" />
@@ -255,7 +255,7 @@ export function LandingPage({ phoneDisplay, phoneHref }: LandingPageProps) {
       </main>
 
       <footer className={styles.footer}>
-        <div><span>BUILDSTAX</span><p>Websites, started by voice.</p></div>
+        <div><span>BUILDLABS</span><p>Websites, started by voice.</p></div>
         <p>AI-assisted website intake. Human-reviewed next steps.</p>
         <Link href="/login">Operator access</Link>
       </footer>

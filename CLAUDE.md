@@ -72,6 +72,6 @@ Plivo streams μ-law audio over the authenticated WebSocket; `bridgeConnection` 
 
 - **All mutations are server-side** (`"use server"` actions or route handlers), Zod-validated, and return an `ActionState` (`src/lib/actions/types.ts`). Use `helpers.ts` (`id()`, `audit()`, `actionError`/`actionSuccess`). Untrusted content (scraped sites, emails, caller input) must never influence tool permissions, credentials, or instructions.
 - **Secrets**: only `NEXT_PUBLIC_INSFORGE_URL`, `NEXT_PUBLIC_INSFORGE_ANON_KEY`, and the Stripe publishable key may reach the browser. Everything else stays in ignored server config (`.env.local`). Use `.env.example` as the non-secret contract.
-- **Security headers/CSP** are set in `next.config.ts`; `/local-call` is the only route granted microphone permission.
+- **Security headers/CSP** are set in `next.config.ts`; `/local-call` is granted microphone permission, and `/businesses/[id]/local-call` is granted microphone permission plus scoped Dograh CSP origins **only when Dograh local calls are enabled** (non-production). See `docs/dograh-local-call.md`.
 - Files under `src/lib/**` that touch server-only state import `"server-only"`.
 - UI: Next.js App Router (routes grouped under `src/app/(app)/`), React 19, Tailwind CSS v4, Radix UI, Lucide. Every primary flow implements loading/empty/validation/denied/failure/success/not-found and desktop+mobile states.

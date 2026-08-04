@@ -2,6 +2,21 @@ import { resolveRealtimeSettings, safeVoiceText } from "./voice-protocol";
 
 export const LOCAL_CALL_MAX_SDP_BYTES = 64 * 1024;
 
+export function isLocalCallAllowed(environment: Readonly<Record<string, string | undefined>> = process.env) {
+  return environment.NODE_ENV !== "production" && environment.APP_MODE !== "production";
+}
+
+export function isAllowedLocalCallOrigin(origin: string, requestHost: string) {
+  const normalizedRequestHost = requestHost.split(",", 1)[0].trim().toLowerCase();
+  if (!normalizedRequestHost) return false;
+  try {
+    const parsedOrigin = new URL(origin);
+    return (parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:") && parsedOrigin.host.toLowerCase() === normalizedRequestHost;
+  } catch {
+    return false;
+  }
+}
+
 export function localCallInstructions(environment: Readonly<Record<string, string | undefined>> = process.env) {
   const configured = safeVoiceText(environment.VOICE_AGENT_INSTRUCTIONS, 8_000);
   return [

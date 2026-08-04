@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Banknote, CreditCard, FileText, MailPlus, PhoneCall, PhoneOutgoing, Play, Rocket, Settings2 } from "lucide-react";
+import { ArrowUpRight, Banknote, CreditCard, FileText, Globe2, Laptop, MailPlus, PhoneCall, PhoneOutgoing, Play, RefreshCw, Rocket, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useState } from "react";
@@ -11,7 +11,9 @@ import {
   createQuoteAction,
   createStripeCheckoutAction,
   logCallAction,
+  recordDeploymentAction,
   recordPaymentAction,
+  regenerateBuildArtifactAction,
   saveRequirementsAction,
   startBuildAction,
   updateBusinessStageAction,
@@ -20,8 +22,10 @@ import { initialActionState, type ActionState } from "@/lib/actions/types";
 import { startPlivoCallAction } from "@/lib/actions/telephony";
 import type { Business, Project, Quote } from "@/lib/db/schema";
 import { getAllowedManualStageTransitions, stageMeta, type BusinessStage } from "@/lib/domain";
+import { isSafeDeploymentUrl } from "@/lib/deployment";
 import { formatCurrency } from "@/lib/format";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FieldError, FormMessage, fieldErrorProps } from "@/components/ui/form-message";
 import { Input, SelectInput, Textarea } from "@/components/ui/input";
@@ -123,6 +127,22 @@ export function PlivoCallDialog({ business, mode }: { business: Business; mode: 
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function DograhLocalCallButton({ business }: { business: Business }) {
+  const callable = !business.doNotCall && ["call_ready", "contacted", "interested", "quoted", "payment_pending"].includes(business.stage);
+  if (!callable) {
+    return (
+      <span className={cn(buttonVariants({ variant: "secondary" }), "cursor-not-allowed opacity-50")} aria-disabled title="This business is not in a callable stage">
+        <Laptop /> Call locally
+      </span>
+    );
+  }
+  return (
+    <Link href={`/businesses/${business.id}/local-call`} className={buttonVariants({ variant: "secondary" })} title="Open the local, browser-based Dograh voice call">
+      <Laptop /> Call locally
+    </Link>
   );
 }
 
@@ -243,15 +263,38 @@ export function StartBuildButton({ business }: { business: Business }) {
   );
 }
 
-export function ProjectAction({ business, project }: { business: Business; project: Project }) {
+export function ProjectAction({ business, project, artifactAvailable }: { business: Business; project: Project; artifactAvailable: boolean }) {
   const [state, action] = useActionState(advanceProjectAction, initialActionState);
+  const [artifactState, artifactAction] = useActionState(regenerateBuildArtifactAction, initialActionState);
+  const [deploymentOpen, setDeploymentOpen] = useState(false);
+  const [deploymentState, deploymentAction] = useActionState(recordDeploymentAction, initialActionState);
   useResult(state);
+  useResult(artifactState);
+  useResult(deploymentState, setDeploymentOpen);
   const labels: Record<string, string> = { building: "Send to review", review: "Mark delivered", delivered: "Mark complete" };
+  const deploymentUrl = isSafeDeploymentUrl(project.productionUrl) ? project.productionUrl : null;
+  const hasDeployment = Boolean(deploymentUrl);
+  const canAdvance = project.status === "building" || project.status === "delivered" || (project.status === "review" && hasDeployment);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Link href={`/preview/${project.previewToken}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-[5px] border border-border bg-white px-3 text-[12px] font-bold hover:bg-muted">Open preview <ArrowUpRight className="size-4" /></Link>
-      {labels[project.status] ? <form action={action}><input type="hidden" name="businessId" value={business.id} /><input type="hidden" name="projectId" value={project.id} /><SubmitButton variant="primary" pendingLabel="Updating…"><Rocket /> {labels[project.status]}</SubmitButton></form> : null}
+      {project.status === "review" && !hasDeployment ? <Button variant="secondary" onClick={() => setDeploymentOpen(true)}><Globe2 /> Record deployment</Button> : null}
+      {deploymentUrl ? <a href={deploymentUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-[5px] border border-border bg-white px-3 text-[12px] font-bold hover:bg-muted"><Globe2 /> Open deployed site</a> : null}
+      {["building", "review"].includes(project.status) ? <form action={artifactAction}><input type="hidden" name="businessId" value={business.id} /><input type="hidden" name="projectId" value={project.id} /><SubmitButton variant="secondary" pendingLabel="Verifying…"><RefreshCw /> {artifactAvailable ? "Regenerate artifact" : "Generate verified artifact"}</SubmitButton></form> : null}
+      {labels[project.status] && canAdvance ? <form action={action}><input type="hidden" name="businessId" value={business.id} /><input type="hidden" name="projectId" value={project.id} /><SubmitButton variant="primary" pendingLabel="Updating…"><Rocket /> {labels[project.status]}</SubmitButton></form> : null}
       {state.status === "error" ? <FormMessage state={state} /> : null}
+      {artifactState.status === "error" ? <FormMessage state={artifactState} /> : null}
+      <Dialog open={deploymentOpen} onOpenChange={setDeploymentOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Record deployed site</DialogTitle><DialogDescription>Enter the externally deployed HTTPS URL. BuildStax records this evidence; it does not claim to have deployed the site.</DialogDescription></DialogHeader>
+          <form action={deploymentAction} className="space-y-4 p-5" noValidate>
+            <input type="hidden" name="businessId" value={business.id} /><input type="hidden" name="projectId" value={project.id} />
+            <div><label className="field-label" htmlFor="deployment-url">Deployed site URL</label><Input id="deployment-url" name="productionUrl" type="url" placeholder="https://www.example.com" {...fieldErrorProps(deploymentState, "productionUrl")} /><FieldError state={deploymentState} name="productionUrl" /></div>
+            <FormMessage state={deploymentState} />
+            <div className="flex justify-end gap-2 border-t border-border pt-4"><Button variant="ghost" type="button" onClick={() => setDeploymentOpen(false)}>Cancel</Button><SubmitButton variant="dark" pendingLabel="Recording…"><Globe2 /> Record deployment</SubmitButton></div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

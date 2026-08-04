@@ -11,6 +11,9 @@ handling revisions in one accountable thread.
   automation evidence.
 - Searchable pipeline with campaign and stage filters, validated manual entry,
   protected transitions, and permanent do-not-call enforcement.
+- Operator Inbox that groups persisted email and preview messages by customer,
+  highlights threads needing a response, and deep-links into the accountable
+  business thread.
 - Business workspace for calls, requirements, quotes, Stripe Checkout,
   project builds, customer feedback, revisions, delivery, and audit history.
 - Campaign management with versioned pitches and an immutable effective price

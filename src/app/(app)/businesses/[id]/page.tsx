@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  DograhLocalCallButton,
   LogCallDialog,
   MessageDialog,
   PaymentDialog,
@@ -19,9 +20,11 @@ import { BusinessAvatar } from "@/components/domain/business-avatar";
 import { StageBadge } from "@/components/domain/status-badges";
 import { Badge } from "@/components/ui/badge";
 import { getBusinessDetail, getWorkspaceSettings } from "@/lib/db/queries";
+import { isBuildArtifactCurrent, readBuildArtifactSummary } from "@/lib/builds/artifact";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/format";
 import { isStripeCheckoutConfigured } from "@/lib/integrations/stripe";
 import { isPlivoCallConfigured } from "@/lib/integrations/plivo";
+import { isDograhLocalCallsEnabled } from "@/lib/integrations/dograh";
 import { isSandbox } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +35,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: detail?.business.name ?? "Business" };
 }
 
-export default async function BusinessPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ payment?: string }> }) {
+export default async function BusinessPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ payment?: string; tab?: string }> }) {
   const { id } = await params;
-  const { payment } = await searchParams;
+  const { payment, tab } = await searchParams;
   const [detail, workspace] = await Promise.all([getBusinessDetail(id), getWorkspaceSettings()]);
   if (!detail) notFound();
   const { business, campaign, calls, quotes, payments, project, messages } = detail;
+  const artifactSummary = project ? await readBuildArtifactSummary(project.id) : null;
+  const artifact = project && isBuildArtifactCurrent(artifactSummary, project, business) ? artifactSummary : null;
   const renderTimestamp = Date.now(); // eslint-disable-line react-hooks/purity -- request-scoped server snapshot
   const openQuote = quotes.find((quote) => ["sent", "accepted"].includes(quote.status) && new Date(quote.expiresAt).getTime() > renderTimestamp);
   const configuredFloorCents = campaign?.pricingFloorCents ?? Number(workspace.default_pricing_floor_cents ?? 150000);
@@ -45,6 +50,7 @@ export default async function BusinessPage({ params, searchParams }: { params: P
   const canPay = ["quoted", "payment_pending"].includes(business.stage) && openQuote;
   const stripeConfigured = isStripeCheckoutConfigured();
   const plivoConfigured = isPlivoCallConfigured();
+  const dograhEnabled = isDograhLocalCallsEnabled();
   const canBuild = business.stage === "paid" && !project;
 
   return (
@@ -58,6 +64,7 @@ export default async function BusinessPage({ params, searchParams }: { params: P
         <div className="flex flex-wrap items-center gap-2">
           <StageControl business={business} />
           {plivoConfigured ? <PlivoCallDialog business={business} mode={isSandbox() ? "sandbox" : "live"} /> : null}
+          {dograhEnabled ? <DograhLocalCallButton business={business} /> : null}
           <LogCallDialog business={business} />
           <MessageDialog business={business} />
           <RequirementsDialog business={business} />
@@ -65,7 +72,7 @@ export default async function BusinessPage({ params, searchParams }: { params: P
           {canPay && openQuote && stripeConfigured ? <StripeCheckoutButton business={business} quote={openQuote} /> : null}
           {canPay && openQuote && !stripeConfigured ? <PaymentDialog business={business} quote={openQuote} /> : null}
           {canBuild ? <StartBuildButton business={business} /> : null}
-          {project ? <ProjectAction business={business} project={project} /> : null}
+          {project ? <ProjectAction business={business} project={project} artifactAvailable={Boolean(artifact?.qa.passed)} /> : null}
         </div>
       </header>
 
@@ -82,7 +89,7 @@ export default async function BusinessPage({ params, searchParams }: { params: P
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
-        <BusinessTabs calls={calls} messages={messages} quotes={quotes} payments={payments} project={project} />
+        <BusinessTabs calls={calls} messages={messages} quotes={quotes} payments={payments} project={project} defaultTab={tab} />
         <aside className="space-y-4">
           <section className="panel">
             <div className="panel-header"><h2 className="section-title">Contact</h2>{business.contactName ? <Badge tone="neutral">Known</Badge> : <Badge tone="warning">Incomplete</Badge>}</div>

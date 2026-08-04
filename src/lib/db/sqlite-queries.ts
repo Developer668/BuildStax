@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import {
   auditEvents,
@@ -17,6 +17,7 @@ import {
   users,
 } from "./schema";
 import { activePipelineStages, type BusinessStage } from "@/lib/domain";
+import { buildInboxThreads, type InboxThread, type InboxView } from "@/lib/inbox";
 
 export async function getUserByEmail(email: string) {
   return getDb().select().from(users).where(eq(users.email, email.toLowerCase())).get() ?? null;
@@ -97,6 +98,17 @@ export async function listBusinesses(filters?: { search?: string; stage?: string
     .all();
 }
 
+export async function listInboxThreads(filters?: { search?: string; view?: InboxView }): Promise<InboxThread[]> {
+  const rows = getDb()
+    .select({ message: messages, business: businesses })
+    .from(messages)
+    .innerJoin(businesses, eq(messages.businessId, businesses.id))
+    .where(inArray(messages.channel, ["email", "preview"]))
+    .orderBy(desc(messages.createdAt))
+    .all();
+  return buildInboxThreads(rows, filters);
+}
+
 export async function getBusinessDetail(id: string) {
   const db = getDb();
   const row = db
@@ -174,7 +186,7 @@ export async function getPreviewByToken(token: string) {
     .select({ project: projects, business: businesses })
     .from(projects)
     .innerJoin(businesses, eq(projects.businessId, businesses.id))
-    .where(eq(projects.previewToken, token))
+    .where(and(eq(projects.previewToken, token), inArray(projects.status, ["review", "delivered", "complete"])))
     .get();
   return row ?? null;
 }

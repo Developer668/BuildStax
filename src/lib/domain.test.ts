@@ -50,6 +50,8 @@ describe("pipeline transitions", () => {
     expect(nextStageForCallOutcome("do_not_call")).toBe("dnc");
     expect(stageAfterCallOutcome("call_ready", "interested")).toBe("interested");
     expect(stageAfterCallOutcome("quoted", "no_answer")).toBe("quoted");
+    expect(stageAfterCallOutcome("payment_pending", "interested")).toBe("payment_pending");
+    expect(stageAfterCallOutcome("paid", "not_interested")).toBe("paid");
   });
 });
 

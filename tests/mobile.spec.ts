@@ -24,8 +24,8 @@ test("mobile navigation and pipeline remain usable without horizontal viewport o
 test("public landing page keeps the phone line and next section visible on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "BuildStax." })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Call BuildStax at +1 (330) 737-7690" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "BuildLabs." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Call BuildLabs at +1 (330) 737-7690" })).toBeVisible();
   const heroBottom = await page.locator("main > section").first().evaluate((element) => element.getBoundingClientRect().bottom);
   expect(heroBottom).toBeLessThan(page.viewportSize()!.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -33,6 +33,14 @@ test("public landing page keeps the phone line and next section visible on mobil
 
 test("customer preview preserves a visible next section on mobile", async ({ page }) => {
   await page.goto("/preview/tide-timber-review-7f3c");
+  const verifiedFrame = page.locator('iframe[title="Tide & Timber Landscaping verified website build"]');
+  if (await verifiedFrame.count()) {
+    await expect(page.getByText("Verified build", { exact: true })).toBeVisible();
+    await expect(verifiedFrame).toBeVisible();
+    await expect(page.frameLocator('iframe[title="Tide & Timber Landscaping verified website build"]').getByRole("heading", { name: "Tide & Timber Landscaping" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    return;
+  }
   await expect(page.getByRole("heading", { name: "Tide & Timber Landscaping" })).toBeVisible();
   const heroBottom = await page.locator("main > section").first().evaluate((element) => element.getBoundingClientRect().bottom);
   expect(heroBottom).toBeLessThan(page.viewportSize()!.height);
@@ -44,10 +52,11 @@ test("prospecting and build studio stay within the mobile viewport", async ({ pa
   await page.locator("#password").fill("buildstax-local");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Command center" })).toBeVisible();
-  for (const [path, heading] of [["/prospecting", "Prospecting"], ["/build-studio", "Build studio"]] as const) {
+  for (const [path, heading] of [["/prospecting", "Prospecting"], ["/inbox", "Inbox"], ["/build-studio", "Build studio"]] as const) {
     await page.goto(path);
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
+  await page.getByRole("button", { name: /Tide & Timber Landscaping/ }).click();
   await expect(page.getByTitle("Tide & Timber Landscaping customer preview")).toBeVisible();
 });

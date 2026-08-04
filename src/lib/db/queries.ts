@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isInsForgeBackend } from "@/lib/backend";
+import { type InboxThread, type InboxView } from "@/lib/inbox";
 import * as insforge from "@/lib/insforge/queries";
 import * as sqlite from "./sqlite-queries";
 
@@ -17,6 +18,10 @@ export function getDashboardData() {
 
 export function listBusinesses(filters?: { search?: string; stage?: string; campaignId?: string }) {
   return isInsForgeBackend() ? insforge.listBusinesses(filters) : sqlite.listBusinesses(filters);
+}
+
+export function listInboxThreads(filters?: { search?: string; view?: InboxView }): Promise<InboxThread[]> {
+  return isInsForgeBackend() ? insforge.listInboxThreads(filters) : sqlite.listInboxThreads(filters);
 }
 
 export function getBusinessDetail(id: string) {

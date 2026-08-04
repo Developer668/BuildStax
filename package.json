@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "overrides": {
-    "postcss": "8.5.19"
+    "postcss": "8.5.25"
   },
   "scripts": {
     "dev": "tsx server.mts",
@@ -38,7 +38,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.545.0",
-    "next": "16.2.10",
+    "next": "16.3.0",
     "plivo": "4.75.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -53,23 +53,23 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
     "@insforge/mcp": "^1.2.11",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@playwright/test": "^1.61.1",
-    "@tailwindcss/postcss": "^4.1.14",
+    "@tailwindcss/postcss": "4.3.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/ws": "^8.18.1",
     "eslint": "^9.39.1",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.3.0",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
     "vitest": "^4.0.8"
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true,
-    "sharp@0.34.5": true,
+    "sharp@0.35.3": true,
     "unrs-resolver@1.12.2": true,
     "fsevents@2.3.2": true,
     "fsevents@2.3.3": true,

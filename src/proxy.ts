@@ -22,14 +22,26 @@ function responseCookieStore(response: NextResponse): CookieStore {
   } as CookieStore;
 }
 
+function shouldUseInsForgeAuth() {
+  if (process.env.DATA_BACKEND === "sqlite") return false;
+  if (process.env.DATA_BACKEND === "insforge") return true;
+  if (process.env.NEXT_PUBLIC_INSFORGE_URL && process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY) return true;
+  return process.env.APP_MODE === "production" || process.env.NODE_ENV === "production";
+}
+
 export async function proxy(request: NextRequest) {
-  if (process.env.DATA_BACKEND === "insforge") {
+  if (shouldUseInsForgeAuth()) {
+    const baseUrl = process.env.NEXT_PUBLIC_INSFORGE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY;
+    if (!baseUrl || !anonKey) {
+      return NextResponse.json({ error: "Authentication backend is not configured." }, { status: 503, headers: { "cache-control": "no-store" } });
+    }
     const response = NextResponse.next({ request });
     const result = await updateSession({
       requestCookies: requestCookieStore(request),
       responseCookies: responseCookieStore(response),
-      baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL,
-      anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+      baseUrl,
+      anonKey,
     });
     if (!result.accessToken) {
       const login = new URL("/login", request.url);
@@ -49,5 +61,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/prospecting/:path*", "/pipeline/:path*", "/businesses/:path*", "/campaigns/:path*", "/build-studio/:path*", "/runs/:path*", "/integrations/:path*", "/settings/:path*", "/denied"],
+  matcher: ["/dashboard/:path*", "/prospecting/:path*", "/pipeline/:path*", "/inbox/:path*", "/businesses/:path*", "/campaigns/:path*", "/build-studio/:path*", "/runs/:path*", "/integrations/:path*", "/settings/:path*", "/local-call/:path*", "/denied"],
 };

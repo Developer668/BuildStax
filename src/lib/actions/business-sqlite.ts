@@ -1,13 +1,14 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireMutationUser } from "@/lib/auth/session";
-import { createBuildArtifact } from "@/lib/builds/artifact";
+import { createBuildArtifact, isBuildArtifactCurrent, readBuildArtifactSummary } from "@/lib/builds/artifact";
 import { getDb } from "@/lib/db";
 import { getWorkspaceSettings } from "@/lib/db/sqlite-queries";
+import { deploymentUrlSchema } from "@/lib/deployment";
 import {
   automationRuns,
   businesses,
@@ -391,15 +392,73 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
   return actionSuccess("Build artifact passed release checks and is ready for customer review.");
 }
 
+export async function regenerateBuildArtifactAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireMutationUser();
+  const parsed = z.object({ businessId: z.string().min(1), projectId: z.string().min(1) }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return actionError("Project not found.");
+  const db = getDb();
+  const row = db
+    .select({ project: projects, business: businesses })
+    .from(projects)
+    .innerJoin(businesses, eq(projects.businessId, businesses.id))
+    .where(and(eq(projects.id, parsed.data.projectId), eq(projects.businessId, parsed.data.businessId)))
+    .get();
+  if (!row) return actionError("Project not found.");
+  if (!["building", "review"].includes(row.project.status)) return actionError("Only a project in build or review can generate a new artifact.");
+  try {
+    await createBuildArtifact({ business: row.business, project: row.project });
+  } catch {
+    return actionError("The site artifact could not be generated or verified.");
+  }
+  const now = new Date().toISOString();
+  const runId = id("run");
+  db.transaction((tx) => {
+    tx.update(projects).set({ status: "review", updatedAt: now }).where(eq(projects.id, row.project.id)).run();
+    tx.update(businesses).set({ stage: "review", nextAction: "Review verified build artifact", nextActionAt: addDays(1), updatedAt: now }).where(eq(businesses.id, row.business.id)).run();
+    tx.insert(automationRuns).values({
+      id: runId,
+      type: "site_build",
+      status: "succeeded",
+      provider: "Local template adapter",
+      mode: isSandbox() ? "sandbox" : "manual",
+      summary: `Regenerated and verified a static site artifact for ${row.business.name}.`,
+      spendCents: 0,
+      error: "",
+      metadata: JSON.stringify({ businessId: row.business.id, projectId: row.project.id, revisionCount: row.project.revisionCount }),
+      startedAt: now,
+      finishedAt: now,
+    }).run();
+  });
+  audit({ actorId: user.id, action: "project.artifact_verified", entityType: "project", entityId: row.project.id, detail: "Regenerated an isolated static site artifact from the approved brief and passed the deterministic release checks." });
+  revalidateBusiness(row.business.id);
+  revalidatePath("/build-studio");
+  return actionSuccess("Build artifact passed release checks and is ready for customer review.");
+}
+
 export async function advanceProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const user = await requireMutationUser();
   const parsed = z.object({ businessId: z.string().min(1), projectId: z.string().min(1) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return actionError("Project not found.");
   const db = getDb();
-  const project = db.select().from(projects).where(and(eq(projects.id, parsed.data.projectId), eq(projects.businessId, parsed.data.businessId))).get();
-  if (!project) return actionError("Project not found.");
+  const row = db
+    .select({ project: projects, business: businesses })
+    .from(projects)
+    .innerJoin(businesses, eq(projects.businessId, businesses.id))
+    .where(and(eq(projects.id, parsed.data.projectId), eq(projects.businessId, parsed.data.businessId)))
+    .get();
+  if (!row) return actionError("Project not found.");
+  const { project, business } = row;
   const next = nextProjectStage(project.status);
   if (!next) return actionError("This project is already complete.");
+  if (["building", "review", "delivered"].includes(project.status)) {
+    const artifact = await readBuildArtifactSummary(project.id);
+    if (!artifact?.qa.passed || !isBuildArtifactCurrent(artifact, project, business)) {
+      return actionError("A verified build artifact is required before this project can advance.");
+    }
+  }
+  if (["review", "delivered"].includes(project.status) && !deploymentUrlSchema.safeParse(project.productionUrl).success) {
+    return actionError("Record a verified HTTPS deployment URL before delivery can be recorded.");
+  }
   const now = new Date().toISOString();
   db.transaction((tx) => {
     tx.update(projects)
@@ -416,6 +475,38 @@ export async function advanceProjectAction(_: ActionState, formData: FormData): 
   return actionSuccess(`Project moved to ${next.projectStatus}.`);
 }
 
+const deploymentSchema = z.object({
+  businessId: z.string().min(1),
+  projectId: z.string().min(1),
+  productionUrl: deploymentUrlSchema,
+});
+
+export async function recordDeploymentAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireMutationUser();
+  const parsed = deploymentSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return actionError("Enter a valid HTTPS deployment URL.", z.flattenError(parsed.error).fieldErrors);
+  const db = getDb();
+  const row = db
+    .select({ project: projects, business: businesses })
+    .from(projects)
+    .innerJoin(businesses, eq(projects.businessId, businesses.id))
+    .where(and(eq(projects.id, parsed.data.projectId), eq(projects.businessId, parsed.data.businessId)))
+    .get();
+  if (!row) return actionError("Project not found.");
+  const { project, business } = row;
+  if (project.status !== "review") return actionError("Deployment evidence can be recorded after the project reaches customer review.");
+  const artifact = await readBuildArtifactSummary(project.id);
+  if (!artifact?.qa.passed || !isBuildArtifactCurrent(artifact, project, business)) {
+    return actionError("A verified build artifact is required before deployment evidence can be recorded.");
+  }
+  const now = new Date().toISOString();
+  db.update(projects).set({ productionUrl: parsed.data.productionUrl, updatedAt: now }).where(eq(projects.id, project.id)).run();
+  audit({ actorId: user.id, action: "project.deployment_recorded", entityType: "project", entityId: project.id, detail: `Recorded the externally deployed HTTPS site ${parsed.data.productionUrl}.` });
+  revalidateBusiness(parsed.data.businessId);
+  revalidatePath("/build-studio");
+  return actionSuccess("Deployment recorded. The project can now be marked delivered.");
+}
+
 const requirementsSchema = z.object({
   businessId: z.string().min(1),
   requirements: z.string().trim().min(20, "Capture at least one concrete requirement.").max(8000),
@@ -429,13 +520,34 @@ export async function saveRequirementsAction(_: ActionState, formData: FormData)
   const db = getDb();
   const business = db.select().from(businesses).where(eq(businesses.id, parsed.data.businessId)).get();
   if (!business) return actionError("Business not found.");
-  db.update(businesses)
-    .set({ requirements: parsed.data.requirements, preferredStyle: parsed.data.preferredStyle, updatedAt: new Date().toISOString() })
-    .where(eq(businesses.id, business.id))
-    .run();
-  audit({ actorId: user.id, action: "requirements.updated", entityType: "business", entityId: business.id, detail: "Updated the customer-approved scope and visual direction." });
+  const now = new Date().toISOString();
+  const project = db.select().from(projects).where(eq(projects.businessId, business.id)).get();
+  const scopeChanged = business.requirements !== parsed.data.requirements || business.preferredStyle !== parsed.data.preferredStyle;
+  const reopensDelivery = Boolean(project && scopeChanged && ["delivered", "complete"].includes(project.status));
+  db.transaction((tx) => {
+    tx.update(businesses)
+      .set({
+        requirements: parsed.data.requirements,
+        preferredStyle: parsed.data.preferredStyle,
+        updatedAt: now,
+        ...(reopensDelivery ? { stage: "review", nextAction: "Review updated project brief", nextActionAt: now } : {}),
+      })
+      .where(eq(businesses.id, business.id))
+      .run();
+    if (project) {
+      tx.update(projects)
+        .set({
+          brief: parsed.data.requirements,
+          updatedAt: now,
+          ...(reopensDelivery ? { status: "review", productionUrl: null, deliveredAt: null } : {}),
+        })
+        .where(eq(projects.id, project.id))
+        .run();
+    }
+  });
+  audit({ actorId: user.id, action: "requirements.updated", entityType: "business", entityId: business.id, detail: reopensDelivery ? "Updated the approved scope and reopened delivery review because the completed project source changed." : project ? "Updated the customer-approved scope, visual direction, and current project brief." : "Updated the customer-approved scope and visual direction." });
   revalidateBusiness(business.id);
-  return actionSuccess("Requirements saved.");
+  return actionSuccess(reopensDelivery ? "Requirements saved. Delivery reopened for review." : "Requirements saved.");
 }
 
 const messageSchema = z.object({
@@ -521,23 +633,24 @@ export async function addMessageAction(_: ActionState, formData: FormData): Prom
 const feedbackSchema = z.object({
   token: z.string().min(8).max(160),
   email: z.union([z.literal(""), z.string().trim().toLowerCase().email("Enter a valid email address.")]),
-  feedback: z.string().trim().min(10, "Describe the change you need.").max(4000),
+  feedback: z.string().trim().min(12, "Describe the change you need.").max(4000),
   company: z.string().max(0).optional(),
 });
 
 export async function submitPreviewFeedbackAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = feedbackSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return actionError("Check the feedback form.", z.flattenError(parsed.error).fieldErrors);
-  const limit = consumeRateLimit(`preview:${parsed.data.token}`, 5, 60 * 60 * 1000);
-  if (!limit.allowed) return actionError("Feedback limit reached. Try again later.");
   const db = getDb();
   const row = db
     .select({ project: projects, business: businesses })
     .from(projects)
     .innerJoin(businesses, eq(projects.businessId, businesses.id))
-    .where(eq(projects.previewToken, parsed.data.token))
+    .where(and(eq(projects.previewToken, parsed.data.token), inArray(projects.status, ["review", "delivered", "complete"])))
     .get();
   if (!row) return actionError("This preview link is not available.");
+  const rateKey = `preview:${createHash("sha256").update(parsed.data.token).digest("hex")}`;
+  const limit = consumeRateLimit(rateKey, 5, 15 * 60 * 1000);
+  if (!limit.allowed) return actionError("Feedback limit reached. Try again later.");
   const now = new Date().toISOString();
   db.transaction((tx) => {
     tx.insert(messages)
@@ -554,7 +667,7 @@ export async function submitPreviewFeedbackAction(_: ActionState, formData: Form
       })
       .run();
     tx.update(projects)
-      .set({ status: "review", revisionCount: row.project.revisionCount + 1, updatedAt: now })
+      .set({ status: "review", revisionCount: row.project.revisionCount + 1, productionUrl: null, deliveredAt: null, updatedAt: now })
       .where(eq(projects.id, row.project.id))
       .run();
     tx.update(businesses)

@@ -8,6 +8,8 @@ import type { Business, Project } from "@/lib/db/schema";
 export type BuildArtifact = {
   projectId: string;
   artifactId: string;
+  revisionCount: number;
+  sourceHash: string;
   sha256: string;
   createdAt: string;
   html: string;
@@ -17,6 +19,38 @@ export type BuildArtifact = {
     checks: Array<{ name: string; passed: boolean; detail: string }>;
   };
 };
+
+export type BuildArtifactSummary = Omit<BuildArtifact, "html">;
+
+export function buildArtifactSourceHash(input: {
+  business: Pick<Business, "id" | "name" | "category" | "location" | "phone" | "requirements" | "preferredStyle">;
+  project: Pick<Project, "id" | "brief" | "revisionCount">;
+}) {
+  return createHash("sha256").update(JSON.stringify({
+    business: {
+      id: input.business.id,
+      name: input.business.name,
+      category: input.business.category,
+      location: input.business.location,
+      phone: input.business.phone,
+      requirements: input.business.requirements,
+      preferredStyle: input.business.preferredStyle,
+    },
+    project: {
+      id: input.project.id,
+      brief: input.project.brief,
+      revisionCount: input.project.revisionCount,
+    },
+  })).digest("hex");
+}
+
+export function isBuildArtifactCurrent(
+  artifact: Pick<BuildArtifact, "revisionCount" | "sourceHash"> | null | undefined,
+  project: Pick<Project, "id" | "brief" | "revisionCount">,
+  business: Pick<Business, "id" | "name" | "category" | "location" | "phone" | "requirements" | "preferredStyle">,
+) {
+  return Boolean(artifact && artifact.revisionCount === project.revisionCount && artifact.sourceHash === buildArtifactSourceHash({ business, project }));
+}
 
 const projectIdPattern = /^prj_[A-Za-z0-9_-]{3,160}$/;
 
@@ -50,12 +84,23 @@ function titleFor(business: Business) {
   return cleanText(`${business.name} | ${business.category} in ${business.location}`, 160);
 }
 
+function imageFor(category: string) {
+  const normalized = category.toLowerCase();
+  if (/landscap|garden/.test(normalized)) return "/images/tide-timber-garden.png";
+  if (/bicycle|bike|cycle|repair/.test(normalized)) return "/images/cypress-bicycle-repair.png";
+  if (/yoga|pilates|wellness/.test(normalized)) return "/images/ember-yoga-studio.png";
+  if (/pet|groom|dog/.test(normalized)) return "/images/new-leaf-grooming.png";
+  return "/images/juniper-bookkeeping.png";
+}
+
 function renderSite(business: Business, project: Project) {
   const name = escapeHtml(cleanText(business.name, 160));
   const category = escapeHtml(cleanText(business.category, 120));
   const location = escapeHtml(cleanText(business.location, 160));
   const brief = escapeHtml(cleanText(project.brief || business.requirements, 8_000));
   const style = escapeHtml(cleanText(business.preferredStyle || "Clear, practical, and welcoming.", 800));
+  const image = imageFor(business.category);
+  const imageAlt = escapeHtml(cleanText(`A ${business.category} service in ${business.location}.`, 180));
   const phone = cleanText(business.phone, 40);
   const phoneHref = phone.replace(/[^+0-9]/g, "");
   const title = escapeHtml(titleFor(business));
@@ -68,23 +113,29 @@ function renderSite(business: Business, project: Project) {
   <title>${title}</title>
   <style>
     :root { color-scheme: light; font-family: Arial, sans-serif; color: #172018; background: #f5f7f3; }
-    * { box-sizing: border-box; } body { margin: 0; } main { max-width: 1040px; margin: 0 auto; padding: 24px; }
-    header { padding: 64px 0 48px; border-bottom: 1px solid #d4ddd2; } .eyebrow { color: #526952; font-size: 13px; font-weight: 700; }
+    * { box-sizing: border-box; } body { margin: 0; } main { max-width: 1120px; margin: 0 auto; padding: 24px; }
+    .hero { position: relative; min-height: 520px; overflow: hidden; display: flex; align-items: flex-end; border-radius: 8px; background: #314131; color: #fff; }
+    .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15, 24, 16, .05), rgba(15, 24, 16, .78)); }
+    .hero-content { position: relative; z-index: 1; width: 100%; padding: 48px; } .eyebrow { color: #d8edc7; font-size: 13px; font-weight: 700; }
     h1 { max-width: 760px; margin: 16px 0; font-size: 52px; line-height: 1.05; } p { max-width: 720px; font-size: 18px; line-height: 1.6; }
     .cta { display: inline-block; margin-top: 18px; padding: 13px 18px; border-radius: 4px; background: #172018; color: #fff; font-weight: 700; text-decoration: none; }
     section { padding: 42px 0; border-bottom: 1px solid #d4ddd2; } h2 { font-size: 27px; } .grid { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .card { padding: 20px; border: 1px solid #d4ddd2; border-radius: 6px; background: #fff; } .muted { color: #58645a; font-size: 14px; }
-    @media (max-width: 680px) { main { padding: 18px; } header { padding: 40px 0 32px; } h1 { font-size: 38px; } .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 680px) { main { padding: 12px; } .hero { min-height: 560px; border-radius: 6px; } .hero-content { padding: 28px; } h1 { font-size: 38px; } .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <main>
-    <header>
+    <section class="hero">
+      <img src="${image}" alt="${imageAlt}">
+      <div class="hero-content">
       <div class="eyebrow">${category} · ${location}</div>
       <h1>${name}</h1>
       <p>${brief}</p>
       ${phoneHref ? `<a class="cta" href="tel:${escapeHtml(phoneHref)}">Call ${name}</a>` : ""}
-    </header>
+      </div>
+    </section>
     <section>
       <h2>What to expect</h2>
       <div class="grid">
@@ -104,6 +155,7 @@ function runQa(html: string, business: Business) {
     { name: "document", passed: /^<!doctype html>/i.test(html), detail: "HTML document declaration is present." },
     { name: "viewport", passed: /<meta name="viewport"/i.test(html), detail: "Responsive viewport metadata is present." },
     { name: "primary-content", passed: /<h1>[^<]+<\/h1>/i.test(html), detail: "A business-specific primary heading is present." },
+    { name: "contextual-image", passed: /<img src="\/images\/[^"]+"/i.test(html), detail: "A grounded local visual asset is included in the artifact." },
     { name: "unsafe-markup", passed: !/<script\b|javascript:|\son[a-z]+\s*=/i.test(html), detail: "Generated markup contains no executable customer content." },
     { name: "contact-path", passed: !business.phone.trim() || /href="tel:/i.test(html), detail: "A supplied phone number has a usable phone action." },
     { name: "bounded-output", passed: Buffer.byteLength(html) <= 64_000, detail: "Artifact is within the static-delivery size budget." },
@@ -120,7 +172,8 @@ export async function createBuildArtifact(input: { business: Business; project: 
   const qa = runQa(html, input.business);
   if (!qa.passed) throw new Error("The generated site did not pass the required release checks.");
   const sha256 = createHash("sha256").update(html).digest("hex");
-  const manifest = { projectId: input.project.id, artifactId: `art_${sha256.slice(0, 24)}`, sha256, createdAt, files: ["index.html", "qa.json", "manifest.json"], qa };
+  const sourceHash = buildArtifactSourceHash(input);
+  const manifest = { projectId: input.project.id, artifactId: `art_${sha256.slice(0, 24)}`, revisionCount: input.project.revisionCount, sourceHash, sha256, createdAt, files: ["index.html", "qa.json", "manifest.json"], qa };
 
   await fs.mkdir(root, { recursive: true, mode: 0o700 });
   await fs.rm(temporary, { recursive: true, force: true });
@@ -143,10 +196,25 @@ export async function readBuildArtifact(projectId: string, root?: string): Promi
       fs.readFile(path.join(directory, "index.html"), "utf8"),
     ]);
     const manifest = JSON.parse(manifestRaw) as Omit<BuildArtifact, "html">;
-    if (!manifest || manifest.projectId !== projectId || !Array.isArray(manifest.files) || !manifest.qa) return null;
+    if (!manifest || manifest.projectId !== projectId || !Number.isInteger(manifest.revisionCount) || typeof manifest.sourceHash !== "string" || !Array.isArray(manifest.files) || !manifest.qa) return null;
     const sha256 = createHash("sha256").update(html).digest("hex");
     return sha256 === manifest.sha256 ? { ...manifest, html } : null;
   } catch {
     return null;
   }
+}
+
+export async function readBuildArtifactSummary(projectId: string, root?: string): Promise<BuildArtifactSummary | null> {
+  const artifact = await readBuildArtifact(projectId, root);
+  if (!artifact) return null;
+  return {
+    projectId: artifact.projectId,
+    artifactId: artifact.artifactId,
+    revisionCount: artifact.revisionCount,
+    sourceHash: artifact.sourceHash,
+    sha256: artifact.sha256,
+    createdAt: artifact.createdAt,
+    files: artifact.files,
+    qa: artifact.qa,
+  };
 }

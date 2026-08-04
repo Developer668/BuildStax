@@ -36,8 +36,16 @@ export async function startBuildAction(state: ActionState, formData: FormData) {
   return isInsForgeBackend() ? insforge.startBuildAction(state, formData) : sqlite.startBuildAction(state, formData);
 }
 
+export async function regenerateBuildArtifactAction(state: ActionState, formData: FormData) {
+  return isInsForgeBackend() ? insforge.regenerateBuildArtifactAction(state, formData) : sqlite.regenerateBuildArtifactAction(state, formData);
+}
+
 export async function advanceProjectAction(state: ActionState, formData: FormData) {
   return isInsForgeBackend() ? insforge.advanceProjectAction(state, formData) : sqlite.advanceProjectAction(state, formData);
+}
+
+export async function recordDeploymentAction(state: ActionState, formData: FormData) {
+  return isInsForgeBackend() ? insforge.recordDeploymentAction(state, formData) : sqlite.recordDeploymentAction(state, formData);
 }
 
 export async function saveRequirementsAction(state: ActionState, formData: FormData) {

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const e2ePort = process.env.BUILDSTAX_E2E_PORT ?? "3100";
+
 export default defineConfig({
   testDir: "./tests",
   globalSetup: "./tests/global-setup.ts",
@@ -8,7 +10,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL: `http://127.0.0.1:${e2ePort}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -18,8 +20,8 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 5"], defaultBrowserType: "chromium" }, testMatch: /mobile\.spec\.ts/ },
   ],
   webServer: {
-    command: "npx tsx server.mts --hostname 127.0.0.1 --port 3100",
-    url: "http://127.0.0.1:3100/login",
+    command: `npx tsx server.mts --hostname 127.0.0.1 --port ${e2ePort}`,
+    url: `http://127.0.0.1:${e2ePort}/login`,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
@@ -29,6 +31,7 @@ export default defineConfig({
       AUTH_SECRET: "buildstax-e2e-session-secret-with-more-than-thirty-two-characters",
       ADMIN_EMAIL: "operator@buildstax.local",
       ADMIN_PASSWORD: "buildstax-local",
+      BUILD_ARTIFACT_ROOT: "./data/build-artifacts-e2e",
       BUILDSTAX_NEXT_DIST_DIR: ".next-e2e",
     },
   },

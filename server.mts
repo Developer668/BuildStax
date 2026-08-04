@@ -22,6 +22,7 @@ import {
   audioPayload,
   boundedCallSeconds,
   isDoNotCallRequest,
+  plivoStreamCloseError,
   resolveRealtimeSettings,
   safeVoiceText,
 } from "./src/lib/integrations/voice-protocol";
@@ -486,7 +487,9 @@ async function bridgeConnection(plivoSocket: WebSocket, token: PlivoStreamTokenP
   plivoSocket.off("message", bufferPendingPlivoMessage);
   for (const message of pendingPlivoMessages) handlePlivoMessage(message.data, message.isBinary);
   pendingPlivoMessages.length = 0;
-  plivoSocket.on("close", () => { void finish(); });
+  plivoSocket.on("close", (code, reason) => {
+    void finish(plivoStreamCloseError(plivoStarted, code, reason.toString()));
+  });
   plivoSocket.on("error", () => { void finish("Plivo audio stream disconnected unexpectedly."); });
   return done;
 }

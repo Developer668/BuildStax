@@ -1,4 +1,10 @@
+import "server-only";
 import { createHash, randomUUID } from "node:crypto";
+import { businessStages, stageAfterCallOutcome, type BusinessStage } from "@/lib/domain";
+
+function isProductionEnvironment() {
+  return process.env.NODE_ENV === "production" || process.env.APP_MODE === "production";
+}
 
 type TelephonySessionStatus = "requested" | "ringing" | "in_progress" | "completed" | "failed" | "cancelled";
 type TelephonySessionPatch = Partial<{
@@ -20,6 +26,7 @@ type TelephonySessionRow = {
   business_id: string;
   status: TelephonySessionStatus;
   direction: "inbound" | "outbound";
+  mode: "sandbox" | "live";
   provider_request_id?: string | null;
   provider_call_id?: string | null;
   transcript?: string;
@@ -49,7 +56,7 @@ async function adminClient() {
   if (!baseUrl || !apiKey) throw new Error("InsForge server configuration is required for telephony persistence.");
   const parsed = new URL(baseUrl);
   const local = ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname.replace(/^\[|\]$/g, ""));
-  if (parsed.username || parsed.password || (parsed.protocol !== "https:" && !(local && process.env.NODE_ENV !== "production"))) {
+  if (parsed.username || parsed.password || (parsed.protocol !== "https:" && !(local && !isProductionEnvironment()))) {
     throw new Error("InsForge telephony persistence requires a trusted HTTPS API origin.");
   }
   const { createAdminClient } = await import("@insforge/sdk");
@@ -58,6 +65,19 @@ async function adminClient() {
 
 function assertResult(result: { error: unknown }, message: string) {
   if (result.error) throw Object.assign(new Error(message), { cause: result.error });
+}
+
+async function currentVoiceBusinessStage(session: TelephonySessionRow): Promise<BusinessStage> {
+  const client = await adminClient();
+  const result = await client.database.from("businesses")
+    .select("stage")
+    .eq("workspace_id", session.workspace_id)
+    .eq("id", session.business_id)
+    .maybeSingle();
+  assertResult(result, "InsForge could not read the voice business stage.");
+  const stage = String((result.data as Record<string, unknown> | null)?.stage || "");
+  if (!businessStages.includes(stage as BusinessStage)) throw new Error("InsForge returned an invalid voice business stage.");
+  return stage as BusinessStage;
 }
 
 export async function createTelephonySession(input: {
@@ -113,7 +133,7 @@ export async function getOrCreateInboundTelephonySession(input: {
   const client = await adminClient();
   const sessionId = deterministicId("tel", input.callId);
   const existingSession = await client.database.from("telephony_sessions")
-    .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
+    .select("id, workspace_id, business_id, status, direction, mode, provider_request_id, provider_call_id, transcript")
     .eq("id", sessionId)
     .maybeSingle();
   assertResult(existingSession, "InsForge could not check the inbound telephony session.");
@@ -315,6 +335,8 @@ async function recordVoiceAudit(input: {
 }
 
 export async function saveVoiceBusinessIntake(session: TelephonySessionRow, input: Record<string, unknown>) {
+  const currentStage = await currentVoiceBusinessStage(session);
+  const nextStage = stageAfterCallOutcome(currentStage, "interested");
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const mappings = [
     ["business_name", "name", 160],
@@ -343,11 +365,16 @@ export async function saveVoiceBusinessIntake(session: TelephonySessionRow, inpu
   const currentWebsite = cleanField(input.current_website, 500).toLowerCase();
   if (currentWebsite) patch.website_status = /\b(?:none|no website|don'?t have|do not have)\b/.test(currentWebsite) ? "none" : "active";
   const priceAcknowledged = input.price_acknowledged === true;
-  patch.stage = "interested";
-  patch.next_action = priceAcknowledged
-    ? "Prepare the floor-compliant quote and secure Stripe checkout"
-    : "Review phone intake and confirm the website offer";
-  patch.next_action_at = new Date().toISOString();
+  patch.stage = nextStage;
+  if (nextStage !== "dnc") {
+    patch.next_action = priceAcknowledged
+      ? "Prepare the floor-compliant quote and secure Stripe checkout"
+      : "Review phone intake and confirm the website offer";
+    patch.next_action_at = new Date().toISOString();
+  } else {
+    patch.next_action = "No outreach permitted";
+    patch.next_action_at = null;
+  }
   const client = await adminClient();
   const updated = await client.database.from("businesses").update(patch)
     .eq("workspace_id", session.workspace_id).eq("id", session.business_id);
@@ -373,11 +400,12 @@ export async function scheduleVoiceBusinessCallback(session: TelephonySessionRow
     throw new Error("The callback time must be between one minute and 90 days from now.");
   }
   const reason = cleanField(input.reason, 300) || "Caller requested a website follow-up";
+  const nextStage = stageAfterCallOutcome(await currentVoiceBusinessStage(session), "interested");
   const client = await adminClient();
   const result = await client.database.from("businesses").update({
-    stage: "interested",
-    next_action: `Call back: ${reason}`.slice(0, 500),
-    next_action_at: new Date(callbackAt).toISOString(),
+    stage: nextStage,
+    next_action: nextStage === "dnc" ? "No outreach permitted" : `Call back: ${reason}`.slice(0, 500),
+    next_action_at: nextStage === "dnc" ? null : new Date(callbackAt).toISOString(),
     updated_at: new Date().toISOString(),
   }).eq("workspace_id", session.workspace_id).eq("id", session.business_id);
   assertResult(result, "InsForge could not schedule the requested callback.");
@@ -394,11 +422,12 @@ export async function scheduleVoiceBusinessCallback(session: TelephonySessionRow
 export async function requestVoiceHumanFollowup(session: TelephonySessionRow, input: Record<string, unknown>) {
   const reason = cleanField(input.reason, 500) || "Caller requested human review";
   const preferredContact = cleanField(input.preferred_contact, 320);
+  const nextStage = stageAfterCallOutcome(await currentVoiceBusinessStage(session), "interested");
   const client = await adminClient();
   const result = await client.database.from("businesses").update({
-    stage: "interested",
-    next_action: `Human follow-up required: ${reason}`.slice(0, 500),
-    next_action_at: new Date().toISOString(),
+    stage: nextStage,
+    next_action: nextStage === "dnc" ? "No outreach permitted" : `Human follow-up required: ${reason}`.slice(0, 500),
+    next_action_at: nextStage === "dnc" ? null : new Date().toISOString(),
     ...(preferredContact && preferredContact.includes("@") ? { email: preferredContact.toLowerCase() } : {}),
     updated_at: new Date().toISOString(),
   }).eq("workspace_id", session.workspace_id).eq("id", session.business_id);
@@ -423,6 +452,9 @@ export async function finalizeVoiceSalesCall(input: {
 }) {
   const client = await adminClient();
   const now = new Date();
+  const currentStage = await currentVoiceBusinessStage(input.session);
+  const nextStage = stageAfterCallOutcome(currentStage, input.outcome);
+  const preserveAdvancedStage = nextStage === currentStage && !["call_ready", "contacted", "interested"].includes(currentStage);
   if (input.outcome !== "do_not_call") {
     const callId = deterministicId("call", input.session.id);
     const existing = await client.database.from("calls").select("id")
@@ -439,7 +471,7 @@ export async function finalizeVoiceSalesCall(input: {
         transcript: input.transcript.slice(0, 100_000),
         duration_seconds: Math.max(0, Math.min(86_400, Math.round(input.durationSeconds))),
         provider: "Plivo + OpenAI Realtime",
-        mode: "live",
+        mode: input.session.mode,
         cost_cents: 0,
         created_at: now.toISOString(),
       }]);
@@ -448,9 +480,9 @@ export async function finalizeVoiceSalesCall(input: {
   }
 
   const businessPatch: Record<string, unknown> = { last_contact_at: now.toISOString(), updated_at: now.toISOString() };
-  if (input.outcome === "not_interested") Object.assign(businessPatch, { stage: "lost", next_action: "No further action", next_action_at: null });
-  else if (input.outcome === "no_answer") Object.assign(businessPatch, { stage: "contacted", next_action: "Retry call if permitted", next_action_at: new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString() });
-  else if (input.outcome === "interested") Object.assign(businessPatch, { stage: "interested", next_action: input.priceAcknowledged ? "Prepare secure Stripe checkout" : "Review the website brief and confirm the offer", next_action_at: now.toISOString() });
+  if (!preserveAdvancedStage && input.outcome === "not_interested") Object.assign(businessPatch, { stage: nextStage, next_action: "No further action", next_action_at: null });
+  else if (!preserveAdvancedStage && input.outcome === "no_answer") Object.assign(businessPatch, { stage: nextStage, next_action: "Retry call if permitted", next_action_at: new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString() });
+  else if (!preserveAdvancedStage && input.outcome === "interested") Object.assign(businessPatch, { stage: nextStage, next_action: input.priceAcknowledged ? "Prepare secure Stripe checkout" : "Review the website brief and confirm the offer", next_action_at: now.toISOString() });
   if (Object.keys(businessPatch).length > 2) {
     const updated = await client.database.from("businesses").update(businessPatch)
       .eq("workspace_id", input.session.workspace_id).eq("id", input.session.business_id);
@@ -508,7 +540,7 @@ export async function finalizeVoiceSalesCall(input: {
 export async function getTelephonySession(id: string) {
   const client = await adminClient();
   const result = await client.database.from("telephony_sessions")
-    .select("id, workspace_id, business_id, status, direction, provider_request_id, provider_call_id, transcript")
+    .select("id, workspace_id, business_id, status, direction, mode, provider_request_id, provider_call_id, transcript")
     .eq("id", id)
     .maybeSingle();
   assertResult(result, "InsForge could not read the telephony session.");

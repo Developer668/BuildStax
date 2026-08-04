@@ -15,7 +15,8 @@ import { createInsForgePublicClient, safeInsForgeMessage } from "@/lib/insforge/
 import { requireInsForgeContext } from "@/lib/insforge/context";
 import { mapBusiness, mapProject, mapQuote, type InsForgeRow } from "@/lib/insforge/map";
 import { findWorkspaceRow, mutationId, recordInsForgeAudit } from "@/lib/insforge/mutate";
-import { createBuildArtifact } from "@/lib/builds/artifact";
+import { createBuildArtifact, isBuildArtifactCurrent, readBuildArtifactSummary } from "@/lib/builds/artifact";
+import { deploymentUrlSchema } from "@/lib/deployment";
 import { deliverTransactionalEmail, safeEmailProviderMessage } from "@/lib/integrations/email";
 import { createQuoteCheckoutSession, safeStripeMessage } from "@/lib/integrations/stripe";
 import { isSandbox } from "@/lib/utils";
@@ -315,6 +316,58 @@ export async function startBuildAction(_: ActionState, formData: FormData): Prom
   return actionSuccess("Build artifact passed release checks and is ready for customer review.");
 }
 
+export async function regenerateBuildArtifactAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireMutationUser();
+  const parsed = z.object({ businessId: z.string().min(1), projectId: z.string().min(1) }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return actionError("Project not found.");
+  const { client, admin, workspaceId } = await requireInsForgeContext();
+  const [businessRow, projectRow] = await Promise.all([
+    findWorkspaceRow(client, workspaceId, "businesses", parsed.data.businessId),
+    findWorkspaceRow(client, workspaceId, "projects", parsed.data.projectId),
+  ]);
+  if (!businessRow || !projectRow || String(projectRow.business_id) !== parsed.data.businessId) return actionError("Project not found.");
+  const business = mapBusiness(businessRow);
+  const project = mapProject(projectRow);
+  if (!["building", "review"].includes(project.status)) return actionError("Only a project in build or review can generate a new artifact.");
+  try {
+    await createBuildArtifact({ business, project });
+    const now = new Date().toISOString();
+    const projectUpdate = await admin.database.from("projects").update({ status: "review", updated_at: now })
+      .eq("workspace_id", workspaceId).eq("id", project.id).eq("business_id", business.id);
+    if (projectUpdate.error) throw projectUpdate.error;
+    const businessUpdate = await admin.database.from("businesses").update({ stage: "review", next_action: "Review verified build artifact", next_action_at: now })
+      .eq("workspace_id", workspaceId).eq("id", business.id);
+    if (businessUpdate.error) throw businessUpdate.error;
+    const runResult = await admin.database.from("automation_runs").insert([{
+      id: mutationId("run"),
+      workspace_id: workspaceId,
+      type: "site_build",
+      status: "succeeded",
+      provider: "Local template adapter",
+      mode: isSandbox() ? "sandbox" : "manual",
+      summary: `Regenerated and verified a static site artifact for ${business.name}.`,
+      spend_cents: 0,
+      error: "",
+      metadata: { businessId: business.id, projectId: project.id, revisionCount: project.revisionCount },
+      started_at: now,
+      finished_at: now,
+    }]);
+    if (runResult.error) throw runResult.error;
+    await recordInsForgeAudit(client, workspaceId, {
+      actorId: user.id,
+      action: "project.artifact_verified",
+      entityType: "project",
+      entityId: project.id,
+      detail: "Regenerated an isolated static site artifact from the approved brief and passed the deterministic release checks.",
+    });
+  } catch (error) {
+    return actionError(safeInsForgeMessage(error, "The site artifact could not be generated or verified."));
+  }
+  revalidateBusiness(business.id);
+  revalidatePath("/build-studio");
+  return actionSuccess("Build artifact passed release checks and is ready for customer review.");
+}
+
 export async function advanceProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
   await requireMutationUser();
   const parsed = z.object({ businessId: z.string().min(1), projectId: z.string().min(1) }).safeParse(Object.fromEntries(formData));
@@ -322,9 +375,21 @@ export async function advanceProjectAction(_: ActionState, formData: FormData): 
   const { client, workspaceId } = await requireInsForgeContext();
   const projectRow = await findWorkspaceRow(client, workspaceId, "projects", parsed.data.projectId);
   if (!projectRow || String(projectRow.business_id) !== parsed.data.businessId) return actionError("Project not found.");
+  const businessRow = await findWorkspaceRow(client, workspaceId, "businesses", parsed.data.businessId);
+  if (!businessRow) return actionError("Project not found.");
   const project = mapProject(projectRow);
+  const business = mapBusiness(businessRow);
   const next = nextProjectStage(project.status);
   if (!next) return actionError("This project is already complete.");
+  if (["building", "review", "delivered"].includes(project.status)) {
+    const artifact = await readBuildArtifactSummary(project.id);
+    if (!artifact?.qa.passed || !isBuildArtifactCurrent(artifact, project, business)) {
+      return actionError("A verified build artifact is required before this project can advance.");
+    }
+  }
+  if (["review", "delivered"].includes(project.status) && !deploymentUrlSchema.safeParse(project.productionUrl).success) {
+    return actionError("Record a verified HTTPS deployment URL before delivery can be recorded.");
+  }
   const result = await client.database.rpc("advance_buildstax_project", {
     p_workspace_id: workspaceId,
     p_project_id: project.id,
@@ -333,6 +398,43 @@ export async function advanceProjectAction(_: ActionState, formData: FormData): 
   if (result.error) return actionError(safeInsForgeMessage(result.error, "The project could not be advanced."));
   revalidateBusiness(parsed.data.businessId);
   return actionSuccess(`Project moved to ${next.projectStatus}.`);
+}
+
+const deploymentSchema = z.object({
+  businessId: z.string().min(1),
+  projectId: z.string().min(1),
+  productionUrl: deploymentUrlSchema,
+});
+
+export async function recordDeploymentAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const user = await requireMutationUser();
+  const parsed = deploymentSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return actionError("Enter a valid HTTPS deployment URL.", z.flattenError(parsed.error).fieldErrors);
+  const { client, admin, workspaceId } = await requireInsForgeContext();
+  const projectRow = await findWorkspaceRow(client, workspaceId, "projects", parsed.data.projectId);
+  if (!projectRow || String(projectRow.business_id) !== parsed.data.businessId) return actionError("Project not found.");
+  const businessRow = await findWorkspaceRow(client, workspaceId, "businesses", parsed.data.businessId);
+  if (!businessRow) return actionError("Project not found.");
+  const project = mapProject(projectRow);
+  const business = mapBusiness(businessRow);
+  if (project.status !== "review") return actionError("Deployment evidence can be recorded after the project reaches customer review.");
+  const artifact = await readBuildArtifactSummary(project.id);
+  if (!artifact?.qa.passed || !isBuildArtifactCurrent(artifact, project, business)) {
+    return actionError("A verified build artifact is required before deployment evidence can be recorded.");
+  }
+  const result = await admin.database.from("projects").update({ production_url: parsed.data.productionUrl })
+    .eq("workspace_id", workspaceId).eq("id", project.id).eq("business_id", parsed.data.businessId);
+  if (result.error) return actionError(safeInsForgeMessage(result.error, "The deployment evidence could not be recorded."));
+  await recordInsForgeAudit(client, workspaceId, {
+    actorId: user.id,
+    action: "project.deployment_recorded",
+    entityType: "project",
+    entityId: project.id,
+    detail: `Recorded the externally deployed HTTPS site ${parsed.data.productionUrl}.`,
+  });
+  revalidateBusiness(parsed.data.businessId);
+  revalidatePath("/build-studio");
+  return actionSuccess("Deployment recorded. The project can now be marked delivered.");
 }
 
 const requirementsSchema = z.object({
@@ -348,12 +450,32 @@ export async function saveRequirementsAction(_: ActionState, formData: FormData)
   const { client, admin, workspaceId } = await requireInsForgeContext();
   const business = await findWorkspaceRow(client, workspaceId, "businesses", parsed.data.businessId);
   if (!business) return actionError("Business not found.");
-  const result = await admin.database.from("businesses").update({ requirements: parsed.data.requirements, preferred_style: parsed.data.preferredStyle })
+  const now = new Date().toISOString();
+  const scopeChanged = String(business.requirements ?? "") !== parsed.data.requirements || String(business.preferred_style ?? "") !== parsed.data.preferredStyle;
+  const projectLookup = await client.database.from("projects").select("id,status").eq("workspace_id", workspaceId).eq("business_id", parsed.data.businessId).order("updated_at", { ascending: false }).limit(1);
+  if (projectLookup.error) return actionError("Project state could not be checked.");
+  const project = ((projectLookup.data ?? []) as InsForgeRow[])[0];
+  const reopensDelivery = Boolean(project && scopeChanged && ["delivered", "complete"].includes(String(project.status)));
+  if (project) {
+    const projectUpdate = await admin.database.from("projects").update({
+      brief: parsed.data.requirements,
+      updated_at: now,
+      ...(reopensDelivery ? { status: "review", production_url: null, delivered_at: null } : {}),
+    })
+      .eq("workspace_id", workspaceId).eq("id", String(project.id));
+    if (projectUpdate.error) return actionError(safeInsForgeMessage(projectUpdate.error, "The project brief could not be updated."));
+  }
+  const result = await admin.database.from("businesses").update({
+    requirements: parsed.data.requirements,
+    preferred_style: parsed.data.preferredStyle,
+    updated_at: now,
+    ...(reopensDelivery ? { stage: "review", next_action: "Review updated project brief", next_action_at: now } : {}),
+  })
     .eq("workspace_id", workspaceId).eq("id", parsed.data.businessId);
   if (result.error) return actionError(safeInsForgeMessage(result.error, "Requirements could not be saved."));
-  await recordInsForgeAudit(client, workspaceId, { actorId: user.id, action: "requirements.updated", entityType: "business", entityId: parsed.data.businessId, detail: "Updated the customer-approved scope and visual direction." });
+  await recordInsForgeAudit(client, workspaceId, { actorId: user.id, action: "requirements.updated", entityType: "business", entityId: parsed.data.businessId, detail: reopensDelivery ? "Updated the approved scope and reopened delivery review because the completed project source changed." : project ? "Updated the customer-approved scope, visual direction, and current project brief." : "Updated the customer-approved scope and visual direction." });
   revalidateBusiness(parsed.data.businessId);
-  return actionSuccess("Requirements saved.");
+  return actionSuccess(reopensDelivery ? "Requirements saved. Delivery reopened for review." : "Requirements saved.");
 }
 
 const messageSchema = z.object({

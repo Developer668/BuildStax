@@ -12,10 +12,10 @@ function formatPhone(value: string) {
 
 export const metadata: Metadata = {
   title: "Start your website by phone",
-  description: "Call BuildStax's AI website line and turn a conversation about your business into a confirmed, build-ready website brief.",
+  description: "Call BuildLabs' AI website line and turn a conversation about your business into a confirmed, build-ready website brief.",
   robots: { index: true, follow: true },
   openGraph: {
-    title: "BuildStax — Start your website by phone",
+    title: "BuildLabs — Start your website by phone",
     description: "One call turns your business goals into a confirmed website brief and a clear next step.",
     type: "website",
   },

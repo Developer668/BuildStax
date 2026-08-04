@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLocalRealtimeSession, isValidLocalSdp, localCallInstructions } from "./local-realtime";
+import { buildLocalRealtimeSession, isAllowedLocalCallOrigin, isLocalCallAllowed, isValidLocalSdp, localCallInstructions } from "./local-realtime";
 
 const environment = {
   OPENAI_API_KEY: "test-openai-key",
@@ -8,6 +8,19 @@ const environment = {
 };
 
 describe("local realtime calls", () => {
+  it("allows the browser voice path only outside production", () => {
+    expect(isLocalCallAllowed({ NODE_ENV: "development", APP_MODE: "sandbox" })).toBe(true);
+    expect(isLocalCallAllowed({ NODE_ENV: "production", APP_MODE: "sandbox" })).toBe(false);
+    expect(isLocalCallAllowed({ NODE_ENV: "development", APP_MODE: "production" })).toBe(false);
+  });
+
+  it("accepts only a valid same-origin browser call", () => {
+    expect(isAllowedLocalCallOrigin("https://app.example.test", "app.example.test")).toBe(true);
+    expect(isAllowedLocalCallOrigin("https://other.example.test", "app.example.test")).toBe(false);
+    expect(isAllowedLocalCallOrigin("null", "app.example.test")).toBe(false);
+    expect(isAllowedLocalCallOrigin("https://app.example.test", "")).toBe(false);
+  });
+
   it("builds a two-way audio session with interruption and transcription", () => {
     const session = buildLocalRealtimeSession(environment);
     expect(session).toMatchObject({

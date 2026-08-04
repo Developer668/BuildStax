@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { FeedbackDialog } from "@/components/preview/feedback-dialog";
 import { Badge } from "@/components/ui/badge";
 import { getPreviewByToken } from "@/lib/db/queries";
-import { readBuildArtifact } from "@/lib/builds/artifact";
+import { isBuildArtifactCurrent, readBuildArtifact } from "@/lib/builds/artifact";
 import { getPreviewContent } from "@/lib/preview-content";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +22,11 @@ export default async function CustomerPreviewPage({ params }: { params: Promise<
   if (!row) notFound();
   const { project, business } = row;
   const artifact = await readBuildArtifact(project.id);
-  if (artifact) {
+  const currentArtifact = isBuildArtifactCurrent(artifact, project, business) ? artifact : null;
+  if (currentArtifact) {
     return <div className="min-h-screen bg-[#eef1ed]">
       <div className="flex min-h-11 items-center justify-between gap-3 border-b border-black/10 bg-white px-3 py-2 sm:px-5">
-        <div className="flex min-w-0 items-center gap-2"><Badge tone="success">Verified build</Badge><span className="truncate text-[10px] font-bold">Private customer review · Revision {project.revisionCount} · {artifact.qa.checks.length} release checks passed</span></div>
+        <div className="flex min-w-0 items-center gap-2"><Badge tone="success">Verified build</Badge><span className="truncate text-[10px] font-bold">Private customer review · Revision {project.revisionCount} · {currentArtifact.qa.checks.length} release checks passed</span></div>
         <FeedbackDialog token={token} businessName={business.name} />
       </div>
       <iframe src={`/api/preview/${encodeURIComponent(token)}/site`} title={`${business.name} verified website build`} className="block h-[calc(100svh-44px)] w-full border-0 bg-white" />
